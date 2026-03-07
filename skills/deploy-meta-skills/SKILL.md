@@ -92,7 +92,10 @@ pip install -r requirements.txt
 1. **说明**  
    告知用户：「将根据刚才的关键词为您安装全网高质量的 OpenClaw skills，默认**最多 100 个**。之后可通过 OpenClaw 让我帮您改上限或追加关键词安装。」
 
-2. **执行安装**  
+2. **首次检索提示**  
+   在执行 `search_install` 之前，务必告知用户：**「首次检索 SKILL 需要较长时间，请耐心等待。」**（会从 GitHub 与配置的 awesome 列表拉取并校验大量仓库，可能持续数分钟。）
+
+3. **执行安装**  
    用 (b) 中拆解的关键词执行（多个关键词可空格连接）：
    ```bash
    python manager.py search_install "关键词1 关键词2 关键词3"
@@ -100,7 +103,7 @@ pip install -r requirements.txt
    若用户未提供用途，可用默认：`python manager.py search_install "openclaw"`  
    **重要**：执行后请将 **Exec 返回的完整标准输出与标准错误** 作为你的回复内容展示在对话中（可整理为代码块或引用），方便用户与 AI 基于安装结果继续对话。同时结果会写入 `meta-skills/reports/search_install_YYYY-MM-DD_HH-MM-SS.md`，若用户是在终端手动执行的 search_install，可在对话中说「读取 meta-skills/reports 下最新的 search_install 报告并发到对话」，你读取该文件并把内容发到对话即可。
 
-3. **修改上限（用户提出时）**  
+4. **修改上限（用户提出时）**  
    ```bash
    python manager.py max_skills 50
    ```
@@ -127,25 +130,36 @@ pip install -r requirements.txt
 ## (f) 说明每日自动更新与飞书通知
 
 1. **告知**  
-   「已安装的 skills 会在**每天 21:00** 自动更新：再次从 GitHub 检索并安装新的高质量 skills（仍受上限限制）。如需常驻自动更新，可在本机运行 `python scheduler.py`（或配合 systemd/cron）。」
+   「已安装的 skills 会在**每天 21:00** 自动更新：再次从 GitHub 检索并安装新的高质量 skills（仍受上限限制）。定时任务使用**系统 systemd** 运行，**首次安装时会默认启用并启动**，无需手动跑进程。」
 
-2. **更新结果写入文档**  
+2. **定时任务（systemd）**  
+   - **安装并默认启动**（部署时在完成 search_install 后执行一次，首次即启用）：
+     ```bash
+     python manager.py schedule install
+     ```
+     会将用户级 systemd 单元写入 `~/.config/systemd/user/`，按当前配置时间（默认 21:00）每天执行 `daily_run`，并立即 enable + start 定时器。
+   - **启动定时器**：`python manager.py schedule start`
+   - **关闭定时器**：`python manager.py schedule stop`
+   - **查询定时任务状态**：`python manager.py schedule status`  
+     可据此回复用户「定时任务已启用/未运行」或贴出状态输出。
+   - **修改执行时间（用户提出时）**：先改配置再重装定时器：
+     ```bash
+     python manager.py schedule 22 30
+     python manager.py schedule install
+     ```
+   - 仅查看当前配置时间：`python manager.py schedule`
+
+3. **更新结果写入文档**  
    每日更新若有**新安装**的技能，会自动生成报告文档：
    - **路径**：`~/.openclaw/skills/meta-skills/reports/daily_update_YYYY-MM-DD.md`
    - **内容**：当日新安装的技能列表、来源、以及每个技能的简要说明（来自 SKILL.md 的 description）。
 
-3. **通过飞书发给用户**  
+4. **通过飞书发给用户**  
    - 部署时告知用户：**每日更新完成后，OpenClaw 可通过飞书把当日更新报告发给您**（发到您指定的飞书群或会话）。
    - 若用户已配置飞书（或使用 OpenClaw 的飞书相关技能），在**每日定时任务执行后**，OpenClaw 应：
      1. 读取当日报告文件（路径同上，日期为当日 `YYYY-MM-DD`）；
      2. 使用飞书技能/机器人将报告内容发送给用户（或用户指定的飞书群/会话）。
    - 若用户尚未配置飞书，可说明：配置飞书后即可在每日更新后自动收到新安装技能列表与说明。
-
-4. **修改时间（用户提出时）**  
-   ```bash
-   python manager.py schedule 22 30
-   ```
-   查看当前定时：`python manager.py schedule`
 
 ---
 
@@ -158,6 +172,10 @@ pip install -r requirements.txt
 | 已安装列表与能力 | `python manager.py installed_summary` |
 | 查看/设置安装上限 | `python manager.py max_skills` / `python manager.py max_skills 100` |
 | 查看/设置每日执行时间 | `python manager.py schedule` / `python manager.py schedule 21 0` |
+| **定时任务：安装并默认启动** | `python manager.py schedule install` |
+| **定时任务：启动** | `python manager.py schedule start` |
+| **定时任务：关闭** | `python manager.py schedule stop` |
+| **定时任务：查询状态** | `python manager.py schedule status` |
 | 手动执行一次「每日更新」 | `python manager.py daily_run` |
 
 **search_install 结果发到对话**：执行 `search_install` 后，请将 Exec 返回的**完整输出**展示在对话中；若用户在终端手动执行了 search_install，可让用户说「读取 meta-skills/reports 下最新的 search_install 报告并发到对话」，你读取 `~/.openclaw/skills/meta-skills/reports/` 下最新一份 `search_install_*.md` 并把内容发到对话，即可将结果发给 AI。

@@ -69,21 +69,22 @@ meta-skills/
 ├── manager.py        # 发现、安装、每日任务、CLI
 ├── db_handler.py     # SQLite 已安装技能与优先级
 ├── rank_store.py     # 本地 JSON 与 meta-skills-rank-lists 同步、README 生成
-├── scheduler.py      # 每日 21:00 定时
+├── scheduler.py      # 可选：循环等待每日执行（推荐用 systemd）
+├── systemd/          # systemd 单元模板（schedule install 时写入 ~/.config/systemd/user/）
 ├── config.yaml       # GitHub、rank_lists、schedule、openclaw 等
 ├── validate.py       # 自检
 ├── requirements.txt
 └── README.md
 ```
 
-## 每日 21:00 任务
+## 每日定时任务（systemd）
 
-- 默认在 **21:00** 执行一次（由 `scheduler.py` 或系统 cron 触发）：
-  1. 从 **rank_lists.repo** 与 **rank_lists.discovery_repos** 拉取 rank 数据，安装高使用量且本机未安装的技能；
-  2. 用 **rank_lists.keywords** 做 GitHub 搜索并安装新技能；
-  3. 将本地 **rank_data.json** 与 README 推送到 **meta-skills-rank-lists**（若有使用数据）。
-
-可在 `config.yaml` 的 `schedule` 中修改 `hour`、`minute` 或关闭 `enabled`。
+- 推荐使用 **系统 systemd** 跑每日任务（用户级：`~/.config/systemd/user/meta-skills-daily.timer`），**首次安装时默认启用并启动**。
+- **安装并启动**：`python manager.py schedule install`（按 config 的 hour/minute 写入 unit 并 enable --now）
+- **启动/关闭**：`python manager.py schedule start` / `python manager.py schedule stop`
+- **查询状态**：`python manager.py schedule status`
+- 每日到点执行一次 `daily_run`：从 rank_lists 与 GitHub 检索并安装新技能，若有新安装则写入 `reports/daily_update_YYYY-MM-DD.md`，并可配合飞书通知用户。
+- 修改时间：`python manager.py schedule 22 30` 后再次执行 `schedule install`。仅查看配置：`python manager.py schedule`。也可用 `scheduler.py` 或 cron 替代 systemd。
 
 ## 安装流程说明（search_install 做了什么）
 

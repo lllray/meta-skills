@@ -1,0 +1,10 @@
+[Unit]
+Description=Meta-Skills daily update (discover and install OpenClaw skills)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@META_SKILLS_DIR@
+ExecStart=@PYTHON@ manager.py daily_run
+StandardOutput=journal
+StandardError=journal

@@ -43,6 +43,9 @@ BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = BASE_DIR / "config.yaml"
 LOCAL_CONFIG_PATH = BASE_DIR / "config.local.yaml"  # 用户 token、repo 等，不提交
 DEFAULT_SKILLS_DIR = Path.home() / ".openclaw" / "skills"
+SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
+TIMER_UNIT = "meta-skills-daily.timer"
+SERVICE_UNIT = "meta-skills-daily.service"
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -1078,13 +1081,86 @@ def create_rank_lists_repo_and_init(token: str, username: str, repo_name: str = 
     return ok2, err if not ok2 else full_repo
 
 
+# ---------- systemd 定时任务 ----------
+
+
+def _systemd_user_run(args: list[str], capture: bool = True) -> tuple[bool, str]:
+    """执行 systemctl --user 命令。返回 (成功, 输出或错误信息)。"""
+    cmd = ["systemctl", "--user"] + args
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        out = (r.stdout or "").strip() + ("\n" + (r.stderr or "").strip() if r.stderr else "")
+        return r.returncode == 0, out or ("ok" if r.returncode == 0 else "failed")
+    except FileNotFoundError:
+        return False, "systemctl not found"
+    except Exception as e:
+        return False, str(e)
+
+
+def schedule_systemd_install(config: Optional[dict] = None) -> tuple[bool, str]:
+    """
+    安装并启用 systemd 用户级定时任务：将 unit 写入 ~/.config/systemd/user/，
+    daemon-reload 后 enable + start timer。首次安装时默认启动。
+    返回 (成功, 消息)。
+    """
+    config = config or _load_config()
+    schedule = config.get("schedule", {})
+    hour = schedule.get("hour", 21)
+    minute = schedule.get("minute", 0)
+    meta_dir = str(BASE_DIR.resolve())
+    python_exe = sys.executable
+
+    on_calendar = f"*-*-* {hour:02d}:{minute:02d}:00"
+    desc_time = f"{hour:02d}:{minute:02d}"
+
+    service_in = BASE_DIR / "systemd" / "meta-skills-daily.service.in"
+    timer_in = BASE_DIR / "systemd" / "meta-skills-daily.timer.in"
+    if not service_in.exists() or not timer_in.exists():
+        return False, "systemd templates not found under systemd/"
+
+    service_content = service_in.read_text(encoding="utf-8").replace("@META_SKILLS_DIR@", meta_dir).replace("@PYTHON@", python_exe)
+    timer_content = timer_in.read_text(encoding="utf-8").replace("@ON_CALENDAR@", on_calendar).replace("@DESCRIPTION_TIME@", desc_time)
+
+    SYSTEMD_USER_DIR.mkdir(parents=True, exist_ok=True)
+    service_path = SYSTEMD_USER_DIR / SERVICE_UNIT
+    timer_path = SYSTEMD_USER_DIR / TIMER_UNIT
+    try:
+        service_path.write_text(service_content, encoding="utf-8")
+        timer_path.write_text(timer_content, encoding="utf-8")
+    except Exception as e:
+        return False, f"write unit files: {e}"
+
+    ok, out = _systemd_user_run(["daemon-reload"])
+    if not ok:
+        return False, f"daemon-reload: {out}"
+    ok2, out2 = _systemd_user_run(["enable", "--now", TIMER_UNIT])
+    if not ok2:
+        return False, f"enable timer: {out2}"
+    return True, f"installed and started: {timer_path} (daily at {desc_time})"
+
+
+def schedule_systemd_start() -> tuple[bool, str]:
+    """启动 systemd 定时器。"""
+    return _systemd_user_run(["start", TIMER_UNIT])
+
+
+def schedule_systemd_stop() -> tuple[bool, str]:
+    """停止 systemd 定时器。"""
+    return _systemd_user_run(["stop", TIMER_UNIT])
+
+
+def schedule_systemd_status() -> tuple[bool, str]:
+    """查询 systemd 定时器状态。"""
+    return _systemd_user_run(["status", TIMER_UNIT])
+
+
 # ---------- CLI ----------
 
 
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:
-        print("usage: search_install <keywords> | scores [skill_name] | record <skill_name> [source_url] | record_edit <skill_name> [source_url] | usage_stats | priority <skill_name> <n> | daily_run | upload_rank | ...")
+        print("usage: search_install <keywords> | scores [skill_name] | record <skill_name> [source_url] | record_edit <skill_name> [source_url] | usage_stats | priority <skill_name> <n> | daily_run | upload_rank | schedule [install|start|stop|status] | schedule <hour> <minute> | ...")
         sys.exit(1)
     cmd = sys.argv[1].lower()
     config = _load_config()
@@ -1100,6 +1176,7 @@ if __name__ == "__main__":
         db = DBHandler(base_dir=BASE_DIR)
         installed_names = {r.name for r in db.list_skills()}
         print(f"[meta-skills] 关键词: {kw!r}，当前已安装 {len(installed_names)} 个，上限 {max_skills}", file=sys.stderr)
+        print("[meta-skills] 首次检索 SKILL 需要较长时间，请耐心等待。", file=sys.stderr)
         print("[meta-skills] 正在 GitHub 搜索...", file=sys.stderr)
         repos_gh = discovery(kw, token=token, min_stars=disc.get("min_stars", 10),
                              updated_within_days=disc.get("updated_within_days", 90),
@@ -1260,7 +1337,21 @@ if __name__ == "__main__":
             print(json.dumps({"max_skills": ((config.get("github") or {}).get("discovery") or {}).get("max_skills", 100)}))
 
     elif cmd == "schedule":
-        if len(sys.argv) >= 4:
+        argc = len(sys.argv)
+        sub = (sys.argv[2].lower() if argc >= 3 else "")
+        if sub == "install":
+            ok, msg = schedule_systemd_install(config)
+            print(json.dumps({"ok": ok, "message": msg}))
+        elif sub == "start":
+            ok, msg = schedule_systemd_start()
+            print(json.dumps({"ok": ok, "message": msg}))
+        elif sub == "stop":
+            ok, msg = schedule_systemd_stop()
+            print(json.dumps({"ok": ok, "message": msg}))
+        elif sub == "status":
+            ok, msg = schedule_systemd_status()
+            print(json.dumps({"ok": ok, "output": msg}))
+        elif len(sys.argv) >= 4 and sys.argv[2].isdigit() and sys.argv[3].isdigit():
             h, m = int(sys.argv[2]), int(sys.argv[3])
             _set_config_key("schedule.hour", h)
             _set_config_key("schedule.minute", m)
