@@ -29,10 +29,12 @@ OpenClaw 的 **元技能** 仓库：根据关键词从 GitHub 与 **meta-skills-
    - **(e)** 安装完毕后汇报已安装的 skills 及简要能力；
    - **(f)** 告知用户每日 21:00 自动更新（时间可通过 OpenClaw 修改）。
 
-4. **可选：启动每日定时**  
-   在 meta-skills 项目根目录执行（若需每日自动更新）：  
-   `python scheduler.py`  
-   （需常驻进程或配合 systemd/cron）
+4. **启动每日定时（systemd，推荐）**  
+   在 meta-skills 项目根目录执行：  
+   ```bash
+   python manager.py schedule install
+   ```
+   会在 `~/.config/systemd/user/` 写入并启用 `meta-skills-daily.timer`，默认每天 21:00 运行一次 `daily_run`。
 
 ---
 
@@ -56,10 +58,10 @@ OpenClaw 的 **元技能** 仓库：根据关键词从 GitHub 与 **meta-skills-
 
 3. **使用**
 
-   - 搜索并安装：`python manager.py search_install "关键词"`
-   - 每次用户调用某技能后记录（打分）：`python manager.py record <skill_name> [source_url]`
-   - 每日自动任务：`python manager.py daily_run`
-   - 启动每天 21:00 定时：`python scheduler.py`（需常驻进程或配合 cron/systemd）
+- 搜索并安装：`python manager.py search_install "关键词"`
+- 每次用户调用某技能后记录（打分）：`python manager.py record <skill_name> [source_url]`
+- 手动执行每日任务：`python manager.py daily_run`
+- 安装并启动每天 21:00 定时（systemd）：`python manager.py schedule install`
 
 ## 目录结构
 
@@ -69,7 +71,6 @@ meta-skills/
 ├── manager.py        # 发现、安装、每日任务、CLI
 ├── db_handler.py     # SQLite 已安装技能与优先级
 ├── rank_store.py     # 本地 JSON 与 meta-skills-rank-lists 同步、README 生成
-├── scheduler.py      # 可选：循环等待每日执行（推荐用 systemd）
 ├── systemd/          # systemd 单元模板（schedule install 时写入 ~/.config/systemd/user/）
 ├── config.yaml       # GitHub、rank_lists、schedule、openclaw 等
 ├── validate.py       # 自检
