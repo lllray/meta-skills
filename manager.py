@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
 
@@ -253,19 +255,53 @@ def discovery_from_rank_list(
     return [s for s in skills if s.get("use_count", 0) >= min_use_count]
 
 
-def _github_get(token: str, path: str) -> Optional[dict]:
-    """GET https://api.github.com/{path}，返回 JSON 或 None。"""
+# 用于 awesome 校验时的请求限速（多线程共享）
+_github_rate_limit_lock: Optional[object] = None
+_github_last_request_time: float = 0.0
+
+
+def _github_get(
+    token: str,
+    path: str,
+    rate_limit_interval: float = 0.0,
+) -> Optional[dict]:
+    """GET https://api.github.com/{path}，返回 JSON 或 None。支持限速与 429/403 重试。"""
+    import urllib.request
+    import urllib.error
     url = f"https://api.github.com/{path}"
     headers = {"Accept": "application/vnd.github.v3+json"}
     if token:
         headers["Authorization"] = f"token {token}"
-    try:
-        import urllib.request
+
+    def do_request():
+        global _github_rate_limit_lock, _github_last_request_time
+        if rate_limit_interval > 0 and _github_rate_limit_lock is not None:
+            with _github_rate_limit_lock:
+                now = time.monotonic()
+                wait = _github_last_request_time + rate_limit_interval - now
+                if wait > 0:
+                    time.sleep(wait)
+                _github_last_request_time = time.monotonic()
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=15) as resp:
             return json.loads(resp.read().decode())
-    except Exception:
-        return None
+
+    for attempt in range(2):
+        try:
+            return do_request()
+        except urllib.error.HTTPError as e:
+            if attempt == 0 and e.code in (403, 429):
+                wait_sec = 60
+                ra = e.headers.get("Retry-After", "")
+                if ra.isdigit():
+                    wait_sec = min(300, int(ra))
+                print(f"[meta-skills] GitHub API {e.code}，{wait_sec}s 后重试...", file=sys.stderr)
+                time.sleep(wait_sec)
+                continue
+            return None
+        except Exception:
+            return None
+    return None
 
 
 def _fetch_readme_from_repo(token: str, owner: str, repo: str) -> Optional[str]:
@@ -295,21 +331,153 @@ def _parse_github_repo_links_from_markdown(markdown: str) -> set[str]:
     return seen
 
 
-def _repo_has_skill(token: str, owner: str, repo: str) -> bool:
-    """通过 API 判断仓库是否包含根目录 SKILL.md 或 topic 含 openclaw-skill。"""
-    repo_data = _github_get(token, f"repos/{owner}/{repo}")
+def _repo_has_skill(
+    token: str,
+    owner: str,
+    repo: str,
+    repo_data: Optional[dict] = None,
+    rate_limit_interval: float = 0.0,
+) -> bool:
+    """通过 API 判断仓库是否包含根目录 SKILL.md 或 topic 含 openclaw-skill。可传入 repo_data 避免重复请求。"""
+    if repo_data is None:
+        repo_data = _github_get(token, f"repos/{owner}/{repo}", rate_limit_interval=rate_limit_interval)
     if not repo_data:
         return False
     topics = repo_data.get("topics") or []
     if "openclaw-skill" in topics:
         return True
-    contents = _github_get(token, f"repos/{owner}/{repo}/contents/")
+    contents = _github_get(token, f"repos/{owner}/{repo}/contents/", rate_limit_interval=rate_limit_interval)
     if not isinstance(contents, list):
         return False
     for item in contents:
         if isinstance(item, dict) and (item.get("name") or "").upper() == "SKILL.MD":
             return True
     return False
+
+
+def _validate_one_awesome_link(
+    token: str,
+    full_name: str,
+    min_stars: int,
+    skip_owner: str,
+    skip_repo: str,
+    rate_limit_interval: float = 0.0,
+    skill_check_cache: Optional[dict] = None,
+    skill_check_cache_lock: Optional[object] = None,
+    link_store: Optional[dict] = None,
+    link_store_lock: Optional[object] = None,
+) -> Optional[RepoCandidate]:
+    """校验单个链接是否为满足星数且含 SKILL 的仓库。若链接存储中该仓库 pushed_at 未变则直接用缓存，不再请求 contents。"""
+    if "/" not in full_name:
+        return None
+    o, r = full_name.split("/", 1)
+    if o == skip_owner and r == skip_repo:
+        return None
+    if skill_check_cache is not None and skill_check_cache_lock is not None:
+        with skill_check_cache_lock:
+            if full_name in skill_check_cache:
+                return skill_check_cache[full_name]
+    elif skill_check_cache is not None:
+        if full_name in skill_check_cache:
+            return skill_check_cache[full_name]
+    repo_data = _github_get(token, f"repos/{o}/{r}", rate_limit_interval=rate_limit_interval)
+    if not repo_data or (repo_data.get("stargazers_count") or 0) < min_stars:
+        if skill_check_cache is not None:
+            if skill_check_cache_lock:
+                with skill_check_cache_lock:
+                    skill_check_cache[full_name] = None
+            else:
+                skill_check_cache[full_name] = None
+        if link_store is not None:
+            pushed = repo_data.get("pushed_at") if repo_data else None
+            entry = {"pushed_at": pushed, "has_skill": False}
+            if link_store_lock:
+                with link_store_lock:
+                    link_store[full_name] = entry
+            else:
+                link_store[full_name] = entry
+        return None
+    pushed_at = repo_data.get("pushed_at") or repo_data.get("updated_at") or ""
+    # 仅当仓库相比上次有更新时才请求 contents 做 skill 校验
+    if link_store is not None:
+        if link_store_lock:
+            with link_store_lock:
+                stored = link_store.get(full_name)
+        else:
+            stored = link_store.get(full_name)
+        if isinstance(stored, dict) and stored.get("pushed_at") == pushed_at:
+            if not stored.get("has_skill"):
+                if skill_check_cache is not None:
+                    if skill_check_cache_lock:
+                        with skill_check_cache_lock:
+                            skill_check_cache[full_name] = None
+                    else:
+                        skill_check_cache[full_name] = None
+                return None
+            c = stored.get("candidate")
+            if isinstance(c, dict) and c.get("full_name") == full_name:
+                out = RepoCandidate(
+                    full_name=c["full_name"],
+                    html_url=c.get("html_url", ""),
+                    clone_url=c.get("clone_url", ""),
+                    description=c.get("description", ""),
+                    stars=c.get("stargazers_count", 0),
+                    updated_at=c.get("pushed_at", ""),
+                    default_branch=c.get("default_branch", "main"),
+                )
+                if skill_check_cache is not None:
+                    if skill_check_cache_lock:
+                        with skill_check_cache_lock:
+                            skill_check_cache[full_name] = out
+                    else:
+                        skill_check_cache[full_name] = out
+                return out
+    has_skill = _repo_has_skill(token, o, r, repo_data=repo_data, rate_limit_interval=rate_limit_interval)
+    if link_store is not None:
+        entry = {
+            "pushed_at": pushed_at,
+            "has_skill": has_skill,
+            "candidate": None,
+        }
+        if has_skill:
+            entry["candidate"] = {
+                "full_name": repo_data["full_name"],
+                "html_url": repo_data["html_url"],
+                "clone_url": repo_data.get("clone_url", repo_data["html_url"] + ".git"),
+                "description": repo_data.get("description") or "",
+                "stargazers_count": repo_data.get("stargazers_count", 0),
+                "pushed_at": pushed_at,
+                "default_branch": repo_data.get("default_branch", "main"),
+            }
+        if link_store_lock:
+            with link_store_lock:
+                link_store[full_name] = entry
+        else:
+            link_store[full_name] = entry
+    if not has_skill:
+        if skill_check_cache is not None:
+            if skill_check_cache_lock:
+                with skill_check_cache_lock:
+                    skill_check_cache[full_name] = None
+            else:
+                skill_check_cache[full_name] = None
+        return None
+    candidate = RepoCandidate(
+        full_name=repo_data["full_name"],
+        html_url=repo_data["html_url"],
+        clone_url=repo_data.get("clone_url", repo_data["html_url"] + ".git"),
+        description=repo_data.get("description") or "",
+        stars=repo_data.get("stargazers_count", 0),
+        updated_at=pushed_at,
+        default_branch=repo_data.get("default_branch", "main"),
+    )
+    if skill_check_cache is not None:
+        if skill_check_cache_lock:
+            with skill_check_cache_lock:
+                skill_check_cache[full_name] = candidate
+        else:
+            skill_check_cache[full_name] = candidate
+    return candidate
 
 
 def _normalize_awesome_list_entry(entry: str) -> Optional[str]:
@@ -321,6 +489,26 @@ def _normalize_awesome_list_entry(entry: str) -> Optional[str]:
         return s if "/" in s else None  # 已是 owner/repo
     m = re.search(r"github\.com[/:]([^/]+)/([^/#?\s]+)", s)
     return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
+def _load_repo_links_store(path: Path) -> dict:
+    """加载链接信息存储：full_name -> { pushed_at, has_skill, candidate? }。"""
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_repo_links_store(path: Path, store: dict) -> None:
+    """保存链接信息存储到 JSON。"""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(store, ensure_ascii=False, indent=0), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def discovery_from_awesome_lists(
@@ -349,7 +537,12 @@ def discovery_from_awesome_lists(
     if not awesome_lists:
         print("[meta-skills] 未配置 awesome_lists 或列表为空", file=sys.stderr)
         return []
-    print(f"[meta-skills] 从配置的 {len(awesome_lists)} 个 awesome 仓库解析 README 链接...", file=sys.stderr)
+    cache_dir = Path(cache_dir or BASE_DIR / gh.get("cache_dir", ".github_cache"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    link_store_path = cache_dir / "repo_links_store.json"
+    link_store = _load_repo_links_store(link_store_path)
+    link_store_lock = threading.Lock()
+    print(f"[meta-skills] 从配置的 {len(awesome_lists)} 个 awesome 仓库解析 README 链接...（链接存储 {len(link_store)} 条，仅对有更新的仓库校验 skill）", file=sys.stderr)
     all_candidates: list[RepoCandidate] = []
     seen_full_name: set[str] = set()
 
@@ -359,6 +552,16 @@ def discovery_from_awesome_lists(
         owner, list_repo = list_spec.strip().split("/", 1)
         list_name = f"{owner}/{list_repo}"
         print(f"[meta-skills]   正在处理: {list_name}", file=sys.stderr)
+        # awesome 仓库自身也作为检索对象：若其根目录含 SKILL.md 则加入候选
+        if list_name not in seen_full_name:
+            c = _validate_one_awesome_link(
+                token, list_name, min_stars, skip_owner="", skip_repo="",
+                link_store=link_store, link_store_lock=link_store_lock,
+            )
+            if c:
+                seen_full_name.add(c.full_name)
+                all_candidates.append(c)
+                print(f"[meta-skills]     -> 本仓库为 skill，已加入候选", file=sys.stderr)
         cache_path = cache_dir / f"awesome_{owner}_{list_repo.replace('/', '_')}.json"
         cached = _read_cached(cache_path, cache_ttl_hours) if cache_path else None
         if cached:
@@ -390,33 +593,42 @@ def discovery_from_awesome_lists(
             print(f"[meta-skills]     -> 拉取 README 失败", file=sys.stderr)
             continue
         links = _parse_github_repo_links_from_markdown(readme)
-        print(f"[meta-skills]     -> 解析出 {len(links)} 个链接，校验 skill 中...", file=sys.stderr)
+        max_try = max(1, min(500, disc.get("max_links_to_try_per_list", 50)))
+        to_try = [f for f in links if "/" in f and f != f"{owner}/{list_repo}"][:max_try]
+        parallel = max(1, int(disc.get("awesome_parallel", 1)))
+        print(f"[meta-skills]     -> 解析出 {len(links)} 个链接，尝试校验前 {len(to_try)} 个（并行 {parallel}）...", file=sys.stderr)
         list_candidates: list[RepoCandidate] = []
-        for full_name in links:
-            if "/" not in full_name:
-                continue
-            o, r = full_name.split("/", 1)
-            if o == owner and r == list_repo:
-                continue
-            repo_data = _github_get(token, f"repos/{o}/{r}")
-            if not repo_data or (repo_data.get("stargazers_count") or 0) < min_stars:
-                continue
-            if not _repo_has_skill(token, o, r):
-                continue
-            list_candidates.append(
-                RepoCandidate(
-                    full_name=repo_data["full_name"],
-                    html_url=repo_data["html_url"],
-                    clone_url=repo_data.get("clone_url", repo_data["html_url"] + ".git"),
-                    description=repo_data.get("description") or "",
-                    stars=repo_data.get("stargazers_count", 0),
-                    updated_at=repo_data.get("pushed_at", repo_data.get("updated_at", "")),
-                    default_branch=repo_data.get("default_branch", "main"),
-                ),
-            )
-            if len(list_candidates) >= max_repos_per_list:
-                break
+        if parallel <= 1:
+            for full_name in to_try:
+                if len(list_candidates) >= max_repos_per_list:
+                    break
+                c = _validate_one_awesome_link(
+                    token, full_name, min_stars, owner, list_repo,
+                    link_store=link_store, link_store_lock=link_store_lock,
+                )
+                if c:
+                    list_candidates.append(c)
+        else:
+            with ThreadPoolExecutor(max_workers=parallel) as ex:
+                futures = {
+                    ex.submit(
+                        _validate_one_awesome_link,
+                        token, fn, min_stars, owner, list_repo,
+                        link_store=link_store, link_store_lock=link_store_lock,
+                    ): fn
+                    for fn in to_try
+                }
+                for fut in as_completed(futures):
+                    if len(list_candidates) >= max_repos_per_list:
+                        break
+                    try:
+                        c = fut.result()
+                        if c and c.full_name not in {x.full_name for x in list_candidates}:
+                            list_candidates.append(c)
+                    except Exception:
+                        pass
         print(f"[meta-skills]     -> 通过校验 {len(list_candidates)} 个 skill", file=sys.stderr)
+        _save_repo_links_store(link_store_path, link_store)
         if cache_path and list_candidates:
             cache_path.write_text(
                 json.dumps(

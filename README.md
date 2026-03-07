@@ -52,7 +52,7 @@ OpenClaw 的 **元技能** 仓库：根据关键词从 GitHub 与 **meta-skills-
      - `rank_lists.repo`: `yourname/meta-skills-rank-lists`
      - `rank_lists.keywords`: 如 `["twitter", "calendar", "pdf"]`（用于 README 展示与搜索偏好）
      - 可选 `rank_lists.discovery_repos`: 其他用户的 rank 仓库，用于发现高使用量技能。
-   - **扩展发现（awesome 列表）**：search_install 与每日任务会从 `config.yaml` 的 `github.discovery.awesome_lists` 中读取配置的仓库列表（支持 `https://github.com/owner/repo` 或 `owner/repo`），拉取各仓库 README，解析其中的 GitHub 链接，校验是否为 skill 后并入候选。可修改 `awesome_lists` 增删仓库；`min_stars_awesome` 为解析出的仓库星数下限（默认 10）。
+   - **扩展发现（awesome 列表）**：search_install 与每日任务会从 `config.yaml` 的 `github.discovery.awesome_lists` 中读取配置的仓库列表（支持 `https://github.com/owner/repo` 或 `owner/repo`），拉取各仓库 README，解析其中的 GitHub 链接，校验是否为 skill 后并入候选。可修改 `awesome_lists` 增删仓库；`min_stars_awesome` 为解析出的仓库星数下限（默认 10）。为加快速度：每个 awesome 仓库只尝试校验前 `max_links_to_try_per_list`（默认 50）个链接；可用 `awesome_parallel`（默认 8）个线程并行校验。
 
 3. **使用**
 
@@ -90,7 +90,7 @@ meta-skills/
 不是「只 clone」：会按顺序执行以下步骤，**只有全部通过**才会计入「已安装」：
 
 1. **GitHub 搜索**：按关键词 + `topic:openclaw-skill` + stars>10 + 最近 3 个月有推送，取最多 `max_results_per_search`（默认 20）个仓库。
-2. **Awesome 扩展**：从配置的 `awesome_lists` 仓库列表（默认 24 个）拉取各 README，解析其中的 GitHub 链接，用 API 过滤出含 SKILL.md 或 topic 为 openclaw-skill 的仓库（星数 ≥ `min_stars_awesome`），与上述结果合并、去重。
+2. **Awesome 扩展**：从配置的 `awesome_lists` 仓库列表（默认 24 个）拉取各 README，解析其中的 GitHub 链接，用 API 过滤出含 SKILL.md 或 topic 为 openclaw-skill 的仓库（星数 ≥ `min_stars_awesome`），与上述结果合并、去重。**链接信息存储**：在 `cache_dir/repo_links_store.json` 中记录每个仓库的上次 `pushed_at`；只有相比上次有更新的仓库才会请求 contents 做 skill 校验，其余直接用缓存结果，减少 API 调用与封禁风险。
 3. **逐个安装**：对每个仓库 **clone** → **解析 SKILL.md 取 name**（无则跳过）→ **若有 validate.py 则在 Docker 中执行**（失败则跳过）→ **复制到 `~/.openclaw/skills/<技能名>/`** 并登记。
 
 OpenClaw 会从该目录扫描并加载 SKILL.md，无需再跑其他安装命令。安装结束后会打印本次安装的技能简介；也可执行 `python manager.py installed_summary` 查看全部已安装技能及 description。

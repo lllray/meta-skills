@@ -19,12 +19,9 @@ github:
       - https://github.com/LeoYeAI/openclaw-master-skills
       - https://github.com/clawdbot-ai/awesome-openclaw-skills-zh
       - https://github.com/sundial-org/awesome-openclaw-skills
-      - https://github.com/SamurAIGPT/awesome-openclaw
       - https://github.com/alirezarezvani/claude-skills
       - https://github.com/googleworkspace/cli
-      - https://github.com/affaan-m/everything-claude-code
       - https://github.com/phuryn/pm-skills
-      - https://github.com/obra/superpowers
       - https://github.com/VoltAgent/awesome-agent-skills
       - https://github.com/sickn33/antigravity-awesome-skills
       - https://github.com/ComposioHQ/awesome-claude-skills
@@ -37,6 +34,8 @@ github:
       - https://github.com/jayboxyz/awesome-programming-skills
       - https://github.com/lawvable/awesome-legal-skills
     min_stars_awesome: 10  # 从 awesome README 解析出的仓库的星数下限（可低于 topic 搜索）
+    max_links_to_try_per_list: 100   # 每个 awesome 仓库只尝试校验前 N 个链接，避免单列表数百次 API
+    awesome_parallel: 8             # 并行校验链接的线程数（1 为串行，建议 4～8）
   cache_dir: ".github_cache"
   cache_ttl_hours: 24
 
