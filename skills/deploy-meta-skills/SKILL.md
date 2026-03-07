@@ -97,7 +97,8 @@ pip install -r requirements.txt
    ```bash
    python manager.py search_install "关键词1 关键词2 关键词3"
    ```
-   若用户未提供用途，可用默认：`python manager.py search_install "openclaw"`
+   若用户未提供用途，可用默认：`python manager.py search_install "openclaw"`  
+   **重要**：执行后请将 **Exec 返回的完整标准输出与标准错误** 作为你的回复内容展示在对话中（可整理为代码块或引用），方便用户与 AI 基于安装结果继续对话。同时结果会写入 `meta-skills/reports/search_install_YYYY-MM-DD_HH-MM-SS.md`，若用户是在终端手动执行的 search_install，可在对话中说「读取 meta-skills/reports 下最新的 search_install 报告并发到对话」，你读取该文件并把内容发到对话即可。
 
 3. **修改上限（用户提出时）**  
    ```bash
@@ -116,7 +117,10 @@ pip install -r requirements.txt
    输出为 JSON：每个 skill 的 `name`、`source_url`、`description`（来自 SKILL.md）。
 
 2. **向用户汇报**  
-   用自然语言汇总：共安装了多少个 skills，按名称列出并附一句简要能力（来自 description）。
+   用自然语言汇总：共安装了多少个 skills，按名称列出并附一句简要能力（来自 description）。若本次是通过 Exec 执行了 `search_install`，**请将 Exec 返回的完整输出（含进度与技能简介）一并展示在对话中**，便于用户与 AI 基于结果继续对话。
+
+3. **结果报告文件**  
+   `search_install` 执行完成后会自动写入 `meta-skills/reports/search_install_YYYY-MM-DD_HH-MM-SS.md`。若用户是在终端手动执行的，可在对话中让 AI「读取 reports 下最新的 search_install 报告并发到对话」即可把结果发到对话窗口。
 
 ---
 
@@ -155,6 +159,8 @@ pip install -r requirements.txt
 | 查看/设置安装上限 | `python manager.py max_skills` / `python manager.py max_skills 100` |
 | 查看/设置每日执行时间 | `python manager.py schedule` / `python manager.py schedule 21 0` |
 | 手动执行一次「每日更新」 | `python manager.py daily_run` |
+
+**search_install 结果发到对话**：执行 `search_install` 后，请将 Exec 返回的**完整输出**展示在对话中；若用户在终端手动执行了 search_install，可让用户说「读取 meta-skills/reports 下最新的 search_install 报告并发到对话」，你读取 `~/.openclaw/skills/meta-skills/reports/` 下最新一份 `search_install_*.md` 并把内容发到对话，即可将结果发给 AI。
 
 **每日更新报告**：`daily_run` 若有新安装，会写入 `meta-skills/reports/daily_update_YYYY-MM-DD.md`；OpenClaw 应读取该文件并通过飞书发给用户。
 

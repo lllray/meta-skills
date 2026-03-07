@@ -780,6 +780,48 @@ def update_rank_lists_after_install(
 # ---------- 每日任务：检索安装 + 上传使用与评分 ----------
 
 
+def _write_search_install_report(
+    installed: list[dict],
+    total_installed: int,
+    summary_by_name: dict[str, str],
+    base_dir: Path,
+) -> Optional[Path]:
+    """
+    将 search_install 的结果（JSON + 技能简介）写入 Markdown 报告。
+    路径: base_dir/reports/search_install_YYYY-MM-DD_HH-MM-SS.md
+    便于在 OpenClaw 对话中让 AI 读取该文件并发送到对话窗口。
+    """
+    reports_dir = base_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    report_path = reports_dir / f"search_install_{ts}.md"
+    lines = [
+        "# search_install 结果",
+        "",
+        f"**本次新安装**：{len(installed)} 个",
+        f"**当前共安装**：{total_installed} 个",
+        "",
+        "## 本次安装列表（JSON）",
+        "```json",
+        json.dumps({"installed": installed, "total_installed": total_installed}, ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## 本次安装的技能简介（来自 SKILL.md description）",
+        "",
+    ]
+    for it in installed:
+        name = it.get("name", "")
+        desc = summary_by_name.get(name, "—")
+        lines.append(f"- **{name}**")
+        lines.append(f"  {desc}")
+        lines.append("")
+    try:
+        report_path.write_text("\n".join(lines), encoding="utf-8")
+        return report_path
+    except Exception:
+        return None
+
+
 def _write_daily_update_report(
     installed: list[dict],
     config: Optional[dict],
@@ -1109,14 +1151,21 @@ if __name__ == "__main__":
         out = {"installed": installed, "total_installed": len(installed_names)}
         print(json.dumps(out, ensure_ascii=False, indent=2))
         # 输出本次安装的技能简介（从 SKILL.md 的 description 解析）
+        summary = get_installed_summary(config)
+        by_name = {s["name"]: s["description"] for s in summary}
         if installed:
-            summary = get_installed_summary(config)
-            by_name = {s["name"]: s["description"] for s in summary}
             print("\n# 本次安装的技能简介（来自 SKILL.md description）\n")
             for it in installed:
                 name = it["name"]
                 desc = by_name.get(name, "—")
                 print(f"- **{name}**\n  {desc}\n")
+        # 写入报告文件，便于在 OpenClaw 对话中让 AI 读取并发送到对话
+        report_path = _write_search_install_report(
+            installed, len(installed_names), by_name, BASE_DIR,
+        )
+        if report_path:
+            print(f"\n[meta-skills] 结果已写入 {report_path}", file=sys.stderr)
+            print("[meta-skills] 在 OpenClaw 对话中可说：「读取 meta-skills/reports 下最新的 search_install 报告并发到对话」即可将结果发给 AI。", file=sys.stderr)
 
     elif cmd == "scores":
         name = sys.argv[2] if len(sys.argv) > 2 else None
