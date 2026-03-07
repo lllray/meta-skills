@@ -5,11 +5,14 @@
 github:
   token: ${GITHUB_TOKEN}   # 可由 OpenClaw 部署时询问并写入 config.local.yaml（不提交）
   discovery:
-    min_stars: 50
+    min_stars: 10
     updated_within_days: 90   # 最近 3 个月有推送
     topic: "openclaw-skill"
     max_results_per_search: 20
     max_skills: 100        # 安装技能总数上限，用户可通过 OpenClaw 修改
+    # 通过 awesome 类仓库扩展发现：搜索「awesome openclaw skills」取 star 前 10 的仓库，解析其 README 中的链接
+    awesome_top_n: 10      # 搜索 awesome 仓库时取 star 数前 N 个
+    min_stars_awesome: 10  # 从 awesome README 解析出的仓库的星数下限（可低于 topic 搜索）
   cache_dir: ".github_cache"
   cache_ttl_hours: 24
 

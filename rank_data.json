@@ -52,8 +52,78 @@
       "installed_at": "2026-03-07T09:50:57.677708Z",
       "use_count": 2,
       "edit_count": 0
+    },
+    {
+      "name": "xint",
+      "source_url": "https://github.com/0xNyk/xint",
+      "installed_at": "2026-03-07T17:06:12.612608Z",
+      "use_count": 0,
+      "edit_count": 0
+    },
+    {
+      "name": "claude-code-dispatch",
+      "source_url": "https://github.com/win4r/claude-code-dispatch",
+      "installed_at": "2026-03-07T17:06:14.586037Z",
+      "use_count": 0,
+      "edit_count": 0
+    },
+    {
+      "name": "iblai-router",
+      "source_url": "https://github.com/iblai/iblai-openclaw-router",
+      "installed_at": "2026-03-07T17:06:16.812715Z",
+      "use_count": 0,
+      "edit_count": 0
+    },
+    {
+      "name": "clawdtalk-client",
+      "source_url": "https://github.com/team-telnyx/clawdtalk-client",
+      "installed_at": "2026-03-07T17:06:27.748428Z",
+      "use_count": 0,
+      "edit_count": 0
+    },
+    {
+      "name": "openclaw-self-healing",
+      "source_url": "https://github.com/Ramsbaby/openclaw-self-healing",
+      "installed_at": "2026-03-07T17:06:30.097531Z",
+      "use_count": 0,
+      "edit_count": 0
+    },
+    {
+      "name": "mcp-integration",
+      "source_url": "https://github.com/lunarpulse/openclaw-mcp-plugin",
+      "installed_at": "2026-03-07T17:06:32.561341Z",
+      "use_count": 0,
+      "edit_count": 0
+    },
+    {
+      "name": "unbrowse",
+      "source_url": "https://github.com/unbrowse-ai/unbrowse",
+      "installed_at": "2026-03-07T17:06:34.927817Z",
+      "use_count": 0,
+      "edit_count": 0
+    },
+    {
+      "name": "sheets-cli",
+      "source_url": "https://github.com/gmickel/sheets-cli",
+      "installed_at": "2026-03-07T17:06:37.648055Z",
+      "use_count": 0,
+      "edit_count": 0
+    },
+    {
+      "name": "context-engineering-collection",
+      "source_url": "https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering",
+      "installed_at": "2026-03-07T17:06:42.647964Z",
+      "use_count": 0,
+      "edit_count": 0
+    },
+    {
+      "name": "stream-coding",
+      "source_url": "https://github.com/frmoretto/stream-coding",
+      "installed_at": "2026-03-07T17:06:44.364843Z",
+      "use_count": 0,
+      "edit_count": 0
     }
   ],
   "last_upload": null,
-  "updated_at": "2026-03-07T09:54:29.751998Z"
+  "updated_at": "2026-03-07T17:06:44.364930Z"
 }

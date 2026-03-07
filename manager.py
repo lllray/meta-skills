@@ -6,11 +6,13 @@ meta-skills - 核心逻辑
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -184,7 +186,7 @@ def _read_cached(path: Path, ttl_hours: float) -> Optional[str]:
 def discovery(
     keywords: str,
     token: str = "",
-    min_stars: int = 50,
+    min_stars: int = 10,
     updated_within_days: int = 90,  # 最近 3 个月
     topic: str = "openclaw-skill",
     max_results: int = 20,
@@ -249,6 +251,200 @@ def discovery_from_rank_list(
     """从用户或他人的 meta-skills-rank-lists 拉取高使用量技能列表，用于每日自动配置。"""
     skills = fetch_rank_list_from_github(rank_lists_repo, token)
     return [s for s in skills if s.get("use_count", 0) >= min_use_count]
+
+
+def _github_get(token: str, path: str) -> Optional[dict]:
+    """GET https://api.github.com/{path}，返回 JSON 或 None。"""
+    url = f"https://api.github.com/{path}"
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except Exception:
+        return None
+
+
+def _fetch_readme_from_repo(token: str, owner: str, repo: str) -> Optional[str]:
+    """拉取仓库 README 内容（优先 README.md）。返回解码后的文本。"""
+    data = _github_get(token, f"repos/{owner}/{repo}/readme")
+    if not data or data.get("encoding") != "base64":
+        return None
+    try:
+        return base64.b64decode(data.get("content", "")).decode("utf-8")
+    except Exception:
+        return None
+
+
+def _parse_github_repo_links_from_markdown(markdown: str) -> set[str]:
+    """从 Markdown 文本中解析出 GitHub 仓库 full_name 集合（owner/repo）。"""
+    # 匹配 https://github.com/owner/repo 或 https://github.com/owner/repo/ 或 /owner/repo 等
+    pattern = re.compile(
+        r"github\.com[/:]([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+?)(?:/|$|\s|\)|\]|#)",
+        re.IGNORECASE,
+    )
+    seen = set()
+    for m in pattern.finditer(markdown):
+        owner, name = m.group(1), m.group(2)
+        if name.lower() in ("blob", "tree", "edit", "raw", "commits", "issues", "pull"):
+            continue
+        seen.add(f"{owner}/{name}")
+    return seen
+
+
+def _repo_has_skill(token: str, owner: str, repo: str) -> bool:
+    """通过 API 判断仓库是否包含根目录 SKILL.md 或 topic 含 openclaw-skill。"""
+    repo_data = _github_get(token, f"repos/{owner}/{repo}")
+    if not repo_data:
+        return False
+    topics = repo_data.get("topics") or []
+    if "openclaw-skill" in topics:
+        return True
+    contents = _github_get(token, f"repos/{owner}/{repo}/contents/")
+    if not isinstance(contents, list):
+        return False
+    for item in contents:
+        if isinstance(item, dict) and (item.get("name") or "").upper() == "SKILL.MD":
+            return True
+    return False
+
+
+def _search_awesome_skill_lists(token: str, top_n: int = 10) -> list[str]:
+    """
+    在 GitHub 上搜索 awesome openclaw skills 类仓库，按 star 数取前 top_n 个，返回 full_name 列表。
+    """
+    items = _github_search(
+        token,
+        query="awesome openclaw",
+        sort="stars",
+        order="desc",
+        per_page=min(top_n, 30),
+    )
+    return [r["full_name"] for r in items[:top_n] if r.get("full_name")]
+
+
+def discovery_from_awesome_lists(
+    config: Optional[dict] = None,
+    token: str = "",
+    cache_dir: Optional[Path] = None,
+    cache_ttl_hours: float = 24,
+    min_stars: int = 10,
+    max_repos_per_list: int = 100,
+) -> list[RepoCandidate]:
+    """
+    通过搜索「awesome openclaw」得到 star 前 N 的仓库，再从其 README 解析 GitHub 链接，
+    校验是否为 skill 后返回候选列表。用于扩展 discovery 的检索范围（不依赖 topic:openclaw-skill）。
+    """
+    config = config or _load_config()
+    token = token or _get_token(config)
+    gh = config.get("github", {})
+    disc = gh.get("discovery", {})
+    top_n = disc.get("awesome_top_n", 10)
+    if top_n <= 0:
+        return []
+    min_stars = min_stars or disc.get("min_stars_awesome", 10)
+    cache_dir = Path(cache_dir or BASE_DIR / gh.get("cache_dir", ".github_cache"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    awesome_lists = _search_awesome_skill_lists(token, top_n=top_n)
+    if not awesome_lists:
+        print("[meta-skills] awesome 搜索未找到仓库", file=sys.stderr)
+        return []
+    print(f"[meta-skills] 找到 {len(awesome_lists)} 个 awesome 仓库: {', '.join(awesome_lists)}", file=sys.stderr)
+    all_candidates: list[RepoCandidate] = []
+    seen_full_name: set[str] = set()
+
+    for list_spec in awesome_lists:
+        if "/" not in list_spec:
+            continue
+        owner, list_repo = list_spec.strip().split("/", 1)
+        list_name = f"{owner}/{list_repo}"
+        print(f"[meta-skills]   正在处理: {list_name}", file=sys.stderr)
+        cache_path = cache_dir / f"awesome_{owner}_{list_repo.replace('/', '_')}.json"
+        cached = _read_cached(cache_path, cache_ttl_hours) if cache_path else None
+        if cached:
+            try:
+                items = json.loads(cached)
+                n_from_cache = 0
+                for r in items:
+                    full_name = r.get("full_name", "")
+                    if full_name and full_name not in seen_full_name:
+                        seen_full_name.add(full_name)
+                        all_candidates.append(
+                            RepoCandidate(
+                                full_name=r["full_name"],
+                                html_url=r["html_url"],
+                                clone_url=r["clone_url"],
+                                description=r.get("description") or "",
+                                stars=r.get("stargazers_count", 0),
+                                updated_at=r.get("pushed_at", r.get("updated_at", "")),
+                                default_branch=r.get("default_branch", "main"),
+                            )
+                        )
+                        n_from_cache += 1
+                print(f"[meta-skills]     -> 使用缓存，{n_from_cache} 个新候选", file=sys.stderr)
+                continue
+            except Exception:
+                pass
+        readme = _fetch_readme_from_repo(token, owner, list_repo)
+        if not readme:
+            print(f"[meta-skills]     -> 拉取 README 失败", file=sys.stderr)
+            continue
+        links = _parse_github_repo_links_from_markdown(readme)
+        print(f"[meta-skills]     -> 解析出 {len(links)} 个链接，校验 skill 中...", file=sys.stderr)
+        list_candidates: list[RepoCandidate] = []
+        for full_name in links:
+            if "/" not in full_name:
+                continue
+            o, r = full_name.split("/", 1)
+            if o == owner and r == list_repo:
+                continue
+            repo_data = _github_get(token, f"repos/{o}/{r}")
+            if not repo_data or (repo_data.get("stargazers_count") or 0) < min_stars:
+                continue
+            if not _repo_has_skill(token, o, r):
+                continue
+            list_candidates.append(
+                RepoCandidate(
+                    full_name=repo_data["full_name"],
+                    html_url=repo_data["html_url"],
+                    clone_url=repo_data.get("clone_url", repo_data["html_url"] + ".git"),
+                    description=repo_data.get("description") or "",
+                    stars=repo_data.get("stargazers_count", 0),
+                    updated_at=repo_data.get("pushed_at", repo_data.get("updated_at", "")),
+                    default_branch=repo_data.get("default_branch", "main"),
+                ),
+            )
+            if len(list_candidates) >= max_repos_per_list:
+                break
+        print(f"[meta-skills]     -> 通过校验 {len(list_candidates)} 个 skill", file=sys.stderr)
+        if cache_path and list_candidates:
+            cache_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "full_name": c.full_name,
+                            "html_url": c.html_url,
+                            "clone_url": c.clone_url,
+                            "description": c.description,
+                            "stargazers_count": c.stars,
+                            "pushed_at": c.updated_at,
+                            "default_branch": c.default_branch,
+                        }
+                    for c in list_candidates
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        for c in list_candidates:
+            if c.full_name not in seen_full_name:
+                seen_full_name.add(c.full_name)
+                all_candidates.append(c)
+    print(f"[meta-skills] awesome 扩展共得到 {len(all_candidates)} 个候选", file=sys.stderr)
+    return all_candidates
 
 
 # ---------- 沙箱验证 ----------
@@ -489,7 +685,7 @@ def daily_run(config: Optional[dict] = None) -> dict:
     for kw in (keywords or ["openclaw"])[:3]:
         if len(installed_names) >= max_skills:
             break
-        repos = discovery(kw, token=token, min_stars=disc.get("min_stars", 50),
+        repos = discovery(kw, token=token, min_stars=disc.get("min_stars", 10),
                           updated_within_days=disc.get("updated_within_days", 90),
                           max_results=disc.get("max_results_per_search", 10),
                           cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
@@ -505,6 +701,26 @@ def daily_run(config: Optional[dict] = None) -> dict:
                 save_rank_data(data, BASE_DIR)
                 installed_names.add(msg)
                 result["installed"].append({"name": msg, "source": "github", "repo": repo.full_name})
+
+    # 2.2) 从 awesome 类仓库扩展发现（搜索「awesome openclaw」star 前 N 的仓库，解析 README 中的链接）
+    if len(installed_names) < max_skills:
+        repos_aw = discovery_from_awesome_lists(
+            config=config, token=token,
+            cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
+            cache_ttl_hours=gh.get("cache_ttl_hours", 24),
+            min_stars=disc.get("min_stars_awesome", 10),
+        )
+        for repo in repos_aw:
+            if len(installed_names) >= max_skills:
+                break
+            ok, msg = install_skill(repo, skills_dir, config, run_validate=True)
+            if ok and msg not in installed_names:
+                db.register_skill(msg, repo.html_url)
+                data = load_rank_data(BASE_DIR)
+                ensure_skill_entry(data, msg, source_url=repo.html_url)
+                save_rank_data(data, BASE_DIR)
+                installed_names.add(msg)
+                result["installed"].append({"name": msg, "source": "awesome", "repo": repo.full_name})
 
     signal_reload(config)
 
@@ -630,11 +846,29 @@ if __name__ == "__main__":
         installed_names = {r.name for r in db.list_skills()}
         print(f"[meta-skills] 关键词: {kw!r}，当前已安装 {len(installed_names)} 个，上限 {max_skills}", file=sys.stderr)
         print("[meta-skills] 正在 GitHub 搜索...", file=sys.stderr)
-        repos = discovery(kw, token=token, min_stars=disc.get("min_stars", 50),
-                          updated_within_days=disc.get("updated_within_days", 90),
-                          max_results=min(disc.get("max_results_per_search", 20), max(1, max_skills - len(installed_names))),
-                          cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
-                          cache_ttl_hours=gh.get("cache_ttl_hours", 24))
+        repos_gh = discovery(kw, token=token, min_stars=disc.get("min_stars", 10),
+                             updated_within_days=disc.get("updated_within_days", 90),
+                             max_results=min(disc.get("max_results_per_search", 20), max(1, max_skills - len(installed_names))),
+                             cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
+                             cache_ttl_hours=gh.get("cache_ttl_hours", 24))
+        seen = {r.full_name for r in repos_gh}
+        repos = list(repos_gh)
+        top_n = disc.get("awesome_top_n", 10)
+        if top_n > 0:
+            print(f"[meta-skills] 正在搜索「awesome openclaw」star 前 {top_n} 的仓库并解析 README 链接...", file=sys.stderr)
+        repos_aw = discovery_from_awesome_lists(
+            config=config, token=token,
+            cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
+            cache_ttl_hours=gh.get("cache_ttl_hours", 24),
+            min_stars=disc.get("min_stars_awesome", 10),
+        )
+        for r in repos_aw:
+            if r.full_name not in seen:
+                seen.add(r.full_name)
+                repos.append(r)
+        added_from_awesome = len(repos) - len(repos_gh)
+        if added_from_awesome:
+            print(f"[meta-skills] 从 awesome 列表补充 {added_from_awesome} 个候选（共 {len(repos)} 个）", file=sys.stderr)
         print(f"[meta-skills] 找到 {len(repos)} 个仓库，开始逐个尝试安装", file=sys.stderr)
         rank_repo = (config.get("rank_lists") or {}).get("repo", "").strip()
         installed = []
