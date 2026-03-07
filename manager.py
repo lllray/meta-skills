@@ -312,18 +312,15 @@ def _repo_has_skill(token: str, owner: str, repo: str) -> bool:
     return False
 
 
-def _search_awesome_skill_lists(token: str, top_n: int = 10) -> list[str]:
-    """
-    在 GitHub 上搜索 awesome openclaw skills 类仓库，按 star 数取前 top_n 个，返回 full_name 列表。
-    """
-    items = _github_search(
-        token,
-        query="awesome openclaw",
-        sort="stars",
-        order="desc",
-        per_page=min(top_n, 30),
-    )
-    return [r["full_name"] for r in items[:top_n] if r.get("full_name")]
+def _normalize_awesome_list_entry(entry: str) -> Optional[str]:
+    """将配置项转为 owner/repo：支持 'owner/repo' 或 'https://github.com/owner/repo'。"""
+    s = (entry or "").strip()
+    if not s:
+        return None
+    if "github.com" not in s and not s.startswith("http"):
+        return s if "/" in s else None  # 已是 owner/repo
+    m = re.search(r"github\.com[/:]([^/]+)/([^/#?\s]+)", s)
+    return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
 def discovery_from_awesome_lists(
@@ -335,24 +332,24 @@ def discovery_from_awesome_lists(
     max_repos_per_list: int = 100,
 ) -> list[RepoCandidate]:
     """
-    通过搜索「awesome openclaw」得到 star 前 N 的仓库，再从其 README 解析 GitHub 链接，
+    从 config 中的 awesome_lists 配置读取仓库列表，拉取各仓库 README，解析 GitHub 链接，
     校验是否为 skill 后返回候选列表。用于扩展 discovery 的检索范围（不依赖 topic:openclaw-skill）。
     """
     config = config or _load_config()
     token = token or _get_token(config)
     gh = config.get("github", {})
     disc = gh.get("discovery", {})
-    top_n = disc.get("awesome_top_n", 10)
-    if top_n <= 0:
-        return []
-    min_stars = min_stars or disc.get("min_stars_awesome", 10)
-    cache_dir = Path(cache_dir or BASE_DIR / gh.get("cache_dir", ".github_cache"))
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    awesome_lists = _search_awesome_skill_lists(token, top_n=top_n)
+    raw_lists = disc.get("awesome_lists") or []
+    awesome_lists = []
+    for e in raw_lists:
+        if isinstance(e, str):
+            spec = _normalize_awesome_list_entry(e)
+            if spec and spec not in awesome_lists:
+                awesome_lists.append(spec)
     if not awesome_lists:
-        print("[meta-skills] awesome 搜索未找到仓库", file=sys.stderr)
+        print("[meta-skills] 未配置 awesome_lists 或列表为空", file=sys.stderr)
         return []
-    print(f"[meta-skills] 找到 {len(awesome_lists)} 个 awesome 仓库: {', '.join(awesome_lists)}", file=sys.stderr)
+    print(f"[meta-skills] 从配置的 {len(awesome_lists)} 个 awesome 仓库解析 README 链接...", file=sys.stderr)
     all_candidates: list[RepoCandidate] = []
     seen_full_name: set[str] = set()
 
@@ -702,7 +699,7 @@ def daily_run(config: Optional[dict] = None) -> dict:
                 installed_names.add(msg)
                 result["installed"].append({"name": msg, "source": "github", "repo": repo.full_name})
 
-    # 2.2) 从 awesome 类仓库扩展发现（搜索「awesome openclaw」star 前 N 的仓库，解析 README 中的链接）
+    # 2.2) 从配置的 awesome 仓库列表扩展发现（拉取各 README 解析链接）
     if len(installed_names) < max_skills:
         repos_aw = discovery_from_awesome_lists(
             config=config, token=token,
@@ -857,9 +854,9 @@ if __name__ == "__main__":
                              cache_ttl_hours=gh.get("cache_ttl_hours", 24))
         seen = {r.full_name for r in repos_gh}
         repos = list(repos_gh)
-        top_n = disc.get("awesome_top_n", 10)
-        if top_n > 0:
-            print(f"[meta-skills] 正在搜索「awesome openclaw」star 前 {top_n} 的仓库并解析 README 链接...", file=sys.stderr)
+        awesome_lists_cfg = disc.get("awesome_lists") or []
+        if awesome_lists_cfg:
+            print("[meta-skills] 正在从配置的 awesome 仓库列表解析 README 链接...", file=sys.stderr)
         repos_aw = discovery_from_awesome_lists(
             config=config, token=token,
             cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),

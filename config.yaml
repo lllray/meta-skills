@@ -10,8 +10,32 @@ github:
     topic: "openclaw-skill"
     max_results_per_search: 20
     max_skills: 100        # 安装技能总数上限，用户可通过 OpenClaw 修改
-    # 通过 awesome 类仓库扩展发现：搜索「awesome openclaw skills」取 star 前 10 的仓库，解析其 README 中的链接
-    awesome_top_n: 10      # 搜索 awesome 仓库时取 star 数前 N 个
+    # 通过配置的 awesome 类仓库扩展发现：拉取各仓库 README，解析其中的 GitHub 链接并校验 skill
+    awesome_lists:        # 默认 awesome 扩展仓库列表（支持 https://github.com/owner/repo 或 owner/repo）
+      - https://github.com/lllray/awesome-skills
+      - https://github.com/anthropics/skills
+      - https://github.com/VoltAgent/awesome-openclaw-skills
+      - https://github.com/openclaw/clawhub
+      - https://github.com/LeoYeAI/openclaw-master-skills
+      - https://github.com/clawdbot-ai/awesome-openclaw-skills-zh
+      - https://github.com/sundial-org/awesome-openclaw-skills
+      - https://github.com/SamurAIGPT/awesome-openclaw
+      - https://github.com/alirezarezvani/claude-skills
+      - https://github.com/googleworkspace/cli
+      - https://github.com/affaan-m/everything-claude-code
+      - https://github.com/phuryn/pm-skills
+      - https://github.com/obra/superpowers
+      - https://github.com/VoltAgent/awesome-agent-skills
+      - https://github.com/sickn33/antigravity-awesome-skills
+      - https://github.com/ComposioHQ/awesome-claude-skills
+      - https://github.com/joe-shenouda/awesome-cyber-skills
+      - https://github.com/Prat011/awesome-llm-skills
+      - https://github.com/heilcheng/awesome-agent-skills
+      - https://github.com/menkesu/awesome-pm-skills
+      - https://github.com/new-silvermoon/awesome-android-agent-skills
+      - https://github.com/intellectronica/awesome-skills
+      - https://github.com/jayboxyz/awesome-programming-skills
+      - https://github.com/lawvable/awesome-legal-skills
     min_stars_awesome: 10  # 从 awesome README 解析出的仓库的星数下限（可低于 topic 搜索）
   cache_dir: ".github_cache"
   cache_ttl_hours: 24
