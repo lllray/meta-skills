@@ -4,25 +4,33 @@ OpenClaw 的 **元技能** 仓库：根据关键词从 GitHub 与 **meta-skills-
 
 ---
 
-## OpenClaw 自动部署（推荐）
+## 自动部署（将链接复制粘贴给AI/opnclaw，推荐）
 
-当用户说：「帮我部署 meta-skills，链接在 https://github.com/lllray/meta-skills 」时，OpenClaw 应：
-
-1. **克隆本仓库**  
-   将 `https://github.com/lllray/meta-skills` 或 `git@github.com:lllray/meta-skills.git` 克隆到本地（例如 `~/.openclaw/skills/meta-skills` 或当前工作目录下的 `meta-skills`）。
+1. **克隆到 OpenClaw 技能目录**  
+   将本仓库克隆到 **OpenClaw 的技能目录**（即当前 OpenClaw 环境加载 skills 的位置，通常为 `~/.openclaw/skills/`），目录名为 `meta-skills`：
+   ```bash
+   git clone https://github.com/lllray/meta-skills.git ~/.openclaw/skills/meta-skills
+   ```
+   若当前工作目录即为 OpenClaw 工作区，也可克隆到 `./skills/meta-skills`，确保 OpenClaw 能加载到该技能。
 
 2. **安装依赖**  
-   在克隆后的项目根目录执行：  
-   `pip install -r requirements.txt`
+   进入克隆后的 **meta-skills 项目根目录** 执行：
+   ```bash
+   cd ~/.openclaw/skills/meta-skills
+   pip install -r requirements.txt
+   ```
 
-3. **按「部署引导技能」完成部署**  
-   打开并**严格按步骤执行**本仓库中的部署引导技能：  
-   **`skills/deploy-meta-skills/SKILL.md`**  
-   该技能会引导你：向用户说明部署步骤与所需信息 → 询问用户主要用途并拆解关键词（写入 meta-skills，支持后续添加/更新）→ 索要 GITHUB_TOKEN 并询问是否上传使用数据到个人 GitHub → 若愿意则创建并初始化用户的 **meta-skills-rank-lists** 仓库 → 安装全网高质量 skills（默认上限 100，可改）→ 汇报已安装 skills 及简要能力 → 说明每日 21:00 自动更新（时间可改）。  
-   所有对 meta-skills 的配置与操作（关键词、Token、rank-lists 链接、安装上限、定时）均通过该技能中列出的 `manager.py` 命令完成。
+3. **按部署引导技能执行完整流程（不要跳过、不要改顺序）**  
+   打开本仓库内的 **`skills/deploy-meta-skills/SKILL.md`**，**从第一段「必须理解」开始，严格按步骤执行**：
+   - **(a)** 向用户告知整个部署过程的步骤、需要的信息、部署后具备的功能；
+   - **(b)** 询问用户主要用 OpenClaw 做什么，拆解为技术关键词，用 `manager.py keywords update/add` 写入 meta-skills（支持后续添加或更新）；
+   - **(c)** 索要 GITHUB_TOKEN，说明用于搜索全网优秀 skills；询问是否愿意将本机对 skills 的使用情况自动上传到个人 GitHub；若愿意，用 `create_rank_repo` 创建并初始化用户的 **meta-skills-rank-lists**，并存储 token 与 rank-lists 链接（支持后续修改）；
+   - **(d)** 安装全网高质量 skills，默认上限 100（用户可通过 OpenClaw 修改）；
+   - **(e)** 安装完毕后汇报已安装的 skills 及简要能力；
+   - **(f)** 告知用户每日 21:00 自动更新（时间可通过 OpenClaw 修改）。
 
 4. **可选：启动每日定时**  
-   部署完成后，若需每日自动更新，可在项目根目录执行：  
+   在 meta-skills 项目根目录执行（若需每日自动更新）：  
    `python scheduler.py`  
    （需常驻进程或配合 systemd/cron）
 
