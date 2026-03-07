@@ -90,6 +90,15 @@ meta-skills/
 
 可在 `config.yaml` 的 `schedule` 中修改 `hour`、`minute` 或关闭 `enabled`。
 
+## 安装流程说明（search_install 做了什么）
+
+不是「只 clone」：会按顺序执行以下步骤，**只有全部通过**才会计入「已安装」：
+
+1. **GitHub 搜索**：按关键词 + `topic:openclaw-skill` + stars>50 + 最近 3 个月有推送，取最多 `max_results_per_search`（默认 20）个仓库。
+2. **逐个安装**：对每个仓库 **clone** → **解析 SKILL.md 取 name**（无则跳过）→ **若有 validate.py 则在 Docker 中执行**（失败则跳过）→ **复制到 `~/.openclaw/skills/<技能名>/`** 并登记。
+
+OpenClaw 会从该目录扫描并加载 SKILL.md，无需再跑其他安装命令。安装结束后会打印本次安装的技能简介；也可执行 `python manager.py installed_summary` 查看全部已安装技能及 description。
+
 ## 依赖
 
 - Python 3.10+

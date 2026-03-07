@@ -6,7 +6,7 @@ github:
   token: ${GITHUB_TOKEN}   # 可由 OpenClaw 部署时询问并写入 config.local.yaml（不提交）
   discovery:
     min_stars: 50
-    updated_within_days: 30
+    updated_within_days: 90   # 最近 3 个月有推送
     topic: "openclaw-skill"
     max_results_per_search: 20
     max_skills: 100        # 安装技能总数上限，用户可通过 OpenClaw 修改

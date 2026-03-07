@@ -185,7 +185,7 @@ def discovery(
     keywords: str,
     token: str = "",
     min_stars: int = 50,
-    updated_within_days: int = 30,
+    updated_within_days: int = 90,  # 最近 3 个月
     topic: str = "openclaw-skill",
     max_results: int = 20,
     cache_dir: Optional[Path] = None,
@@ -446,7 +446,7 @@ def daily_run(config: Optional[dict] = None) -> dict:
         if len(installed_names) >= max_skills:
             break
         repos = discovery(kw, token=token, min_stars=disc.get("min_stars", 50),
-                          updated_within_days=disc.get("updated_within_days", 30),
+                          updated_within_days=disc.get("updated_within_days", 90),
                           max_results=disc.get("max_results_per_search", 10),
                           cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
                           cache_ttl_hours=gh.get("cache_ttl_hours", 24))
@@ -579,7 +579,7 @@ if __name__ == "__main__":
         db = DBHandler(base_dir=BASE_DIR)
         installed_names = {r.name for r in db.list_skills()}
         repos = discovery(kw, token=token, min_stars=disc.get("min_stars", 50),
-                          updated_within_days=disc.get("updated_within_days", 30),
+                          updated_within_days=disc.get("updated_within_days", 90),
                           max_results=min(disc.get("max_results_per_search", 20), max(1, max_skills - len(installed_names))),
                           cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
                           cache_ttl_hours=gh.get("cache_ttl_hours", 24))
@@ -599,7 +599,17 @@ if __name__ == "__main__":
                 if rank_repo:
                     update_rank_lists_after_install(msg, repo.html_url, config)
         signal_reload(config)
-        print(json.dumps({"installed": installed, "total_installed": len(installed_names)}, ensure_ascii=False, indent=2))
+        out = {"installed": installed, "total_installed": len(installed_names)}
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        # 输出本次安装的技能简介（从 SKILL.md 的 description 解析）
+        if installed:
+            summary = get_installed_summary(config)
+            by_name = {s["name"]: s["description"] for s in summary}
+            print("\n# 本次安装的技能简介（来自 SKILL.md description）\n")
+            for it in installed:
+                name = it["name"]
+                desc = by_name.get(name, "—")
+                print(f"- **{name}**\n  {desc}\n")
 
     elif cmd == "scores":
         name = sys.argv[2] if len(sys.argv) > 2 else None
