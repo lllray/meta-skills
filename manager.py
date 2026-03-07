@@ -22,6 +22,7 @@ import yaml
 
 from db_handler import DBHandler, SkillScore
 from rank_store import (
+    add_keywords,
     ensure_skill_entry,
     fetch_rank_list_from_github,
     get_keywords,
@@ -31,23 +32,102 @@ from rank_store import (
     record_use,
     save_rank_data,
     set_keywords,
+    update_keywords,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = BASE_DIR / "config.yaml"
+LOCAL_CONFIG_PATH = BASE_DIR / "config.local.yaml"  # 用户 token、repo 等，不提交
 DEFAULT_SKILLS_DIR = Path.home() / ".openclaw" / "skills"
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for k, v in override.items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 def _load_config(path: Optional[Path] = None) -> dict:
-    path = path or os.environ.get("META_SKILLS_CONFIG") or DEFAULT_CONFIG_PATH
+    path = path or DEFAULT_CONFIG_PATH
     with open(path, "r", encoding="utf-8") as f:
         raw = f.read()
     raw = os.path.expandvars(raw)
-    return yaml.safe_load(raw) or {}
+    cfg = yaml.safe_load(raw) or {}
+    if LOCAL_CONFIG_PATH.exists():
+        with open(LOCAL_CONFIG_PATH, "r", encoding="utf-8") as f:
+            local_raw = f.read()
+        local_raw = os.path.expandvars(local_raw)
+        local_cfg = yaml.safe_load(local_raw) or {}
+        cfg = _deep_merge(cfg, local_cfg)
+    return cfg
+
+
+def _set_config_key(key: str, value: str | int | bool | list) -> None:
+    """支持嵌套键，如 rank_lists.repo、schedule.hour、github.token。写入 config.local.yaml。"""
+    parts = key.split(".")
+    data: dict = {}
+    if LOCAL_CONFIG_PATH.exists():
+        try:
+            with open(LOCAL_CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        except Exception:
+            data = {}
+    cur = data
+    for i, p in enumerate(parts[:-1]):
+        if p not in cur or not isinstance(cur.get(p), dict):
+            cur[p] = {}
+        cur = cur[p]
+    cur[parts[-1]] = value
+    LOCAL_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(LOCAL_CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+
+def _get_config_key(key: str, config: Optional[dict] = None) -> Optional[str | int | bool | list]:
+    config = config or _load_config()
+    parts = key.split(".")
+    cur = config
+    for p in parts:
+        cur = cur.get(p) if isinstance(cur, dict) else None
+        if cur is None:
+            return None
+    return cur
+
+
+def create_github_repo(token: str, repo_name: str, private: bool = False) -> tuple[bool, str]:
+    """在 GitHub 上创建仓库（如 meta-skills-rank-lists）。若已存在则返回成功。"""
+    if "/" in repo_name:
+        repo_name = repo_name.split("/")[-1]
+    url = "https://api.github.com/user/repos"
+    headers = {"Accept": "application/vnd.github.v3+json", "Authorization": f"token {token}"}
+    body = json.dumps({"name": repo_name, "private": private, "auto_init": True}).encode()
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            r = json.loads(resp.read().decode())
+        return True, r.get("html_url", "")
+    except Exception as e:
+        err = str(e)
+        if "422" in err or "name already exists" in err.lower() or "Repository creation failed" in err:
+            return True, f"https://github.com/.../{repo_name}"
+        return False, err
 
 
 def _expand_path(p: str) -> Path:
     return Path(os.path.expanduser(p))
+
+
+def _get_token(config: Optional[dict] = None) -> str:
+    config = config or _load_config()
+    t = (config.get("github") or {}).get("token") or os.environ.get("GITHUB_TOKEN", "")
+    if isinstance(t, str) and t.startswith("${") and t.endswith("}"):
+        t = os.environ.get("GITHUB_TOKEN", "")
+    return (t or "").strip()
 
 
 # ---------- 发现模块 ----------
@@ -277,7 +357,7 @@ def update_rank_lists_after_install(
     now = datetime.utcnow().isoformat() + "Z"
     ensure_skill_entry(data, skill_name, source_url=source_url, installed_at=now)
     save_rank_data(data, BASE_DIR)
-    token = os.environ.get("GITHUB_TOKEN", "")
+    token = _get_token(config)
     return push_to_github(repo, token, BASE_DIR, data)
 
 
@@ -287,12 +367,12 @@ def update_rank_lists_after_install(
 def daily_run(config: Optional[dict] = None) -> dict:
     """
     每日默认 21:00 执行：
-    1. 从 GitHub + meta-skills-rank-lists 检索，安装推荐技能
+    1. 从 GitHub + meta-skills-rank-lists 检索，安装推荐技能（受 max_skills 上限）
     2. 若有今日使用，将本地 JSON 上传到 meta-skills-rank-lists
     """
     config = config or _load_config()
     result = {"installed": [], "uploaded": False, "upload_error": None}
-    token = os.environ.get("GITHUB_TOKEN", "")
+    token = _get_token(config)
     gh = config.get("github", {})
     disc = gh.get("discovery", {})
     rank_cfg = config.get("rank_lists", {})
@@ -304,6 +384,7 @@ def daily_run(config: Optional[dict] = None) -> dict:
     skills_dir.mkdir(parents=True, exist_ok=True)
     db = DBHandler(base_dir=BASE_DIR)
     installed_names = {r.name for r in db.list_skills()}
+    max_skills = (gh.get("discovery") or {}).get("max_skills", 100)
 
     # 1) 从配置的 rank-lists 仓库取高使用量技能（需有 source_url 才能克隆）
     rank_skills = []
@@ -346,15 +427,21 @@ def daily_run(config: Optional[dict] = None) -> dict:
             save_rank_data(data, BASE_DIR)
             installed_names.add(msg)
             result["installed"].append({"name": msg, "source": "rank_list"})
+        if len(installed_names) >= max_skills:
+            break
 
     # 2) GitHub 搜索（用用户关键词）
     for kw in (keywords or ["openclaw"])[:3]:
+        if len(installed_names) >= max_skills:
+            break
         repos = discovery(kw, token=token, min_stars=disc.get("min_stars", 50),
                           updated_within_days=disc.get("updated_within_days", 30),
                           max_results=disc.get("max_results_per_search", 10),
                           cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
                           cache_ttl_hours=gh.get("cache_ttl_hours", 24))
         for repo in repos:
+            if len(installed_names) >= max_skills:
+                break
             ok, msg = install_skill(repo, skills_dir, config, run_validate=True)
             if ok and msg not in installed_names:
                 db.register_skill(msg, repo.html_url)
@@ -424,44 +511,84 @@ def main_priority(skill_name: str, priority: int) -> str:
     return f"priority set to {priority}"
 
 
+def get_installed_summary(config: Optional[dict] = None) -> list[dict]:
+    """返回已安装技能列表及简要能力（从 SKILL.md 的 description 提取）。"""
+    config = config or _load_config()
+    skills_dir = _expand_path(config.get("openclaw", {}).get("skills_dir", str(DEFAULT_SKILLS_DIR)))
+    db = DBHandler(base_dir=BASE_DIR)
+    out = []
+    for rec in db.list_skills():
+        skill_md = skills_dir / rec.name / "SKILL.md"
+        desc = ""
+        if skill_md.exists():
+            try:
+                text = skill_md.read_text(encoding="utf-8")
+                m = re.search(r"^description:\s*(.+?)(?:\n|---)", text, re.DOTALL)
+                if m:
+                    desc = m.group(1).strip().split("\n")[0][:200]
+            except Exception:
+                pass
+        out.append({"name": rec.name, "source_url": rec.source_url, "description": desc or "—"})
+    return out
+
+
+def create_rank_lists_repo_and_init(token: str, username: str, repo_name: str = "meta-skills-rank-lists") -> tuple[bool, str]:
+    """创建用户个人的 meta-skills-rank-lists 仓库并初始化 README + rank_data.json。"""
+    if "/" in username:
+        username = username.split("/")[0]
+    full_repo = f"{username}/{repo_name}"
+    ok, _ = create_github_repo(token, full_repo, private=False)
+    if not ok:
+        return False, "create repo failed"
+    _set_config_key("rank_lists.repo", full_repo)
+    data = load_rank_data(BASE_DIR)
+    ok2, err = push_to_github(full_repo, token, BASE_DIR, data)
+    return ok2, err if not ok2 else full_repo
+
+
 # ---------- CLI ----------
 
 
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:
-        print("usage: search_install <keywords> | scores [skill_name] | record <skill_name> [source_url] | priority <skill_name> <n> | daily_run | upload_rank")
+        print("usage: search_install <keywords> | scores [skill_name] | record <skill_name> [source_url] | priority <skill_name> <n> | daily_run | upload_rank | config get <key> | config set <key> <value> | keywords add k1 k2 | keywords update k1 k2 | keywords get | create_rank_repo <username> | installed_summary | max_skills [n] | schedule [hour] [minute]")
         sys.exit(1)
     cmd = sys.argv[1].lower()
     config = _load_config()
-    token = os.environ.get("GITHUB_TOKEN", "")
+    token = _get_token(config)
 
     if cmd == "search_install":
         kw = " ".join(sys.argv[2:]) or "openclaw"
         gh = config.get("github", {})
         disc = gh.get("discovery", {})
-        repos = discovery(kw, token=token, min_stars=disc.get("min_stars", 50),
-                          updated_within_days=disc.get("updated_within_days", 30),
-                          max_results=disc.get("max_results_per_search", 20),
-                          cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
-                          cache_ttl_hours=gh.get("cache_ttl_hours", 24))
+        max_skills = disc.get("max_skills", 100)
         skills_dir = _expand_path(config.get("openclaw", {}).get("skills_dir", str(DEFAULT_SKILLS_DIR)))
         skills_dir.mkdir(parents=True, exist_ok=True)
         db = DBHandler(base_dir=BASE_DIR)
+        installed_names = {r.name for r in db.list_skills()}
+        repos = discovery(kw, token=token, min_stars=disc.get("min_stars", 50),
+                          updated_within_days=disc.get("updated_within_days", 30),
+                          max_results=min(disc.get("max_results_per_search", 20), max(1, max_skills - len(installed_names))),
+                          cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
+                          cache_ttl_hours=gh.get("cache_ttl_hours", 24))
         rank_repo = (config.get("rank_lists") or {}).get("repo", "").strip()
         installed = []
         for repo in repos:
+            if len(installed_names) >= max_skills:
+                break
             ok, msg = install_skill(repo, skills_dir, config, run_validate=True)
-            if ok:
+            if ok and msg not in installed_names:
                 db.register_skill(msg, repo.html_url)
                 data = load_rank_data(BASE_DIR)
                 ensure_skill_entry(data, msg, source_url=repo.html_url)
                 save_rank_data(data, BASE_DIR)
+                installed_names.add(msg)
                 installed.append({"name": msg, "repo": repo.full_name})
                 if rank_repo:
                     update_rank_lists_after_install(msg, repo.html_url, config)
         signal_reload(config)
-        print(json.dumps({"installed": installed}, ensure_ascii=False, indent=2))
+        print(json.dumps({"installed": installed, "total_installed": len(installed_names)}, ensure_ascii=False, indent=2))
 
     elif cmd == "scores":
         name = sys.argv[2] if len(sys.argv) > 2 else None
@@ -492,6 +619,66 @@ if __name__ == "__main__":
         else:
             ok, err = push_to_github(rank_repo, token, BASE_DIR)
             print(json.dumps({"ok": ok, "error": err}))
+
+    elif cmd == "config" and len(sys.argv) >= 4:
+        sub = sys.argv[2].lower()
+        key = sys.argv[3]
+        if sub == "get":
+            val = _get_config_key(key, config)
+            print(json.dumps({"key": key, "value": val}))
+        elif sub == "set" and len(sys.argv) >= 5:
+            val = sys.argv[4]
+            if val.isdigit():
+                val = int(val)
+            elif val.lower() in ("true", "false"):
+                val = val.lower() == "true"
+            _set_config_key(key, val)
+            print(json.dumps({"ok": True, "key": key}))
+
+    elif cmd == "keywords":
+        if len(sys.argv) < 3:
+            print(json.dumps({"keywords": get_keywords(BASE_DIR)}))
+        else:
+            sub = sys.argv[2].lower()
+            if sub == "get":
+                print(json.dumps({"keywords": get_keywords(BASE_DIR)}))
+            elif sub == "add" and len(sys.argv) >= 4:
+                added = sys.argv[3:]
+                current = add_keywords(added, BASE_DIR)
+                print(json.dumps({"added": added, "keywords": current}))
+            elif sub == "update" and len(sys.argv) >= 4:
+                new_list = sys.argv[3:]
+                current = update_keywords(new_list, BASE_DIR)
+                print(json.dumps({"keywords": current}))
+
+    elif cmd == "create_rank_repo" and len(sys.argv) >= 3:
+        username = sys.argv[2]
+        if not token:
+            print(json.dumps({"ok": False, "error": "GITHUB_TOKEN or github.token required"}))
+        else:
+            ok, msg = create_rank_lists_repo_and_init(token, username)
+            print(json.dumps({"ok": ok, "repo_or_error": msg}))
+
+    elif cmd == "installed_summary":
+        print(json.dumps(get_installed_summary(config), ensure_ascii=False, indent=2))
+
+    elif cmd == "max_skills":
+        if len(sys.argv) >= 3:
+            n = int(sys.argv[2])
+            _set_config_key("github.discovery.max_skills", n)
+            print(json.dumps({"max_skills": n}))
+        else:
+            print(json.dumps({"max_skills": ((config.get("github") or {}).get("discovery") or {}).get("max_skills", 100)}))
+
+    elif cmd == "schedule":
+        if len(sys.argv) >= 4:
+            h, m = int(sys.argv[2]), int(sys.argv[3])
+            _set_config_key("schedule.hour", h)
+            _set_config_key("schedule.minute", m)
+            print(json.dumps({"hour": h, "minute": m}))
+        else:
+            s = config.get("schedule", {})
+            print(json.dumps({"enabled": s.get("enabled", True), "hour": s.get("hour", 21), "minute": s.get("minute", 0)}))
 
     else:
         print("unknown command or missing args")

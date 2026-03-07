@@ -1,5 +1,8 @@
 {
-  "keywords": [],
+  "keywords": [
+    "pdf",
+    "git"
+  ],
   "skills": [
     {
       "name": "test-skill",
@@ -10,5 +13,5 @@
     }
   ],
   "last_upload": null,
-  "updated_at": "2026-03-07T08:03:13.053578Z"
+  "updated_at": "2026-03-07T08:28:29.687436Z"
 }

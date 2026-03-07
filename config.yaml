@@ -3,23 +3,23 @@
 
 # GitHub API（必填或使用环境变量 GITHUB_TOKEN）
 github:
-  token: ${GITHUB_TOKEN}
+  token: ${GITHUB_TOKEN}   # 可由 OpenClaw 部署时询问并写入 config.local.yaml（不提交）
   discovery:
     min_stars: 50
     updated_within_days: 30
     topic: "openclaw-skill"
     max_results_per_search: 20
+    max_skills: 100        # 安装技能总数上限，用户可通过 OpenClaw 修改
   cache_dir: ".github_cache"
   cache_ttl_hours: 24
 
-# 用户自己的排名仓库（需先在 GitHub 创建空仓库 meta-skills-rank-lists）
+# 用户自己的排名仓库（可在此填写或由 OpenClaw 部署时设置；也可由 GitHub API 自动创建 meta-skills-rank-lists）
 rank_lists:
-  repo: ""   # 例如 yourname/meta-skills-rank-lists，用于上传本机使用数据与 README
-  # 发现时从哪些 rank 仓库拉取高使用量技能（可填他人或社区仓库）
-  discovery_repos: []  # 例如 ["otheruser/meta-skills-rank-lists"]，为空则仅用 GitHub 搜索
-  keywords: []  # 例如 ["twitter", "calendar", "pdf"]，用于 README 展示与 GitHub 搜索关键词
+  repo: ""   # 例如 yourname/meta-skills-rank-lists
+  discovery_repos: []
+  keywords: []  # 可由 deploy 流程根据用户描述拆解并写入，支持后续通过 config/keywords 接口添加或更新
 
-# 每日定时任务（默认 21:00）
+# 每日定时任务（默认 21:00，用户可通过 OpenClaw 修改）
 schedule:
   enabled: true
   hour: 21

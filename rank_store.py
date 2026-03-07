@@ -87,10 +87,31 @@ def record_edit(base_dir: Optional[Path] = None, skill_name: str = "", source_ur
 
 
 def set_keywords(keywords: list[str], base_dir: Optional[Path] = None) -> None:
-    """设置用户关键词（用于 README 展示）。"""
+    """设置用户关键词（完全替换，用于 README 展示与搜索）。"""
     data = load_rank_data(base_dir)
     data["keywords"] = list(keywords)
     save_rank_data(data, base_dir)
+
+
+def add_keywords(keywords: list[str], base_dir: Optional[Path] = None) -> list[str]:
+    """在现有关键词基础上追加新关键词，去重。返回当前完整关键词列表。"""
+    data = load_rank_data(base_dir)
+    current = list(data.get("keywords", []))
+    seen = set(current)
+    for k in keywords:
+        k = (k or "").strip()
+        if k and k not in seen:
+            current.append(k)
+            seen.add(k)
+    data["keywords"] = current
+    save_rank_data(data, base_dir)
+    return current
+
+
+def update_keywords(keywords: list[str], base_dir: Optional[Path] = None) -> list[str]:
+    """用新列表完全替换关键词（与 set_keywords 同义，供 OpenClaw 接口语义清晰）。返回当前关键词列表。"""
+    set_keywords(keywords, base_dir)
+    return get_keywords(base_dir)
 
 
 def get_keywords(base_dir: Optional[Path] = None) -> list[str]:
