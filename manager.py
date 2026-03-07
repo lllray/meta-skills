@@ -800,9 +800,13 @@ def get_installed_summary(config: Optional[dict] = None) -> list[dict]:
         if skill_md.exists():
             try:
                 text = skill_md.read_text(encoding="utf-8")
-                m = re.search(r"^description:\s*(.+?)(?:\n|---)", text, re.DOTALL)
+                # frontmatter 中 description: 可能在任意行，需 MULTILINE 使 ^ 匹配行首
+                m = re.search(r"^description:\s*(.+?)(?:\n|---)", text, re.DOTALL | re.MULTILINE)
                 if m:
                     desc = m.group(1).strip().split("\n")[0][:200]
+                if not desc and text.strip().startswith("#"):
+                    first_line = text.strip().split("\n")[0]
+                    desc = re.sub(r"^#+\s*", "", first_line).strip()[:200]
             except Exception:
                 pass
         out.append({"name": rec.name, "source_url": rec.source_url, "description": desc or "—"})
