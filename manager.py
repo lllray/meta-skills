@@ -628,16 +628,21 @@ if __name__ == "__main__":
         skills_dir.mkdir(parents=True, exist_ok=True)
         db = DBHandler(base_dir=BASE_DIR)
         installed_names = {r.name for r in db.list_skills()}
+        print(f"[meta-skills] 关键词: {kw!r}，当前已安装 {len(installed_names)} 个，上限 {max_skills}", file=sys.stderr)
+        print("[meta-skills] 正在 GitHub 搜索...", file=sys.stderr)
         repos = discovery(kw, token=token, min_stars=disc.get("min_stars", 50),
                           updated_within_days=disc.get("updated_within_days", 90),
                           max_results=min(disc.get("max_results_per_search", 20), max(1, max_skills - len(installed_names))),
                           cache_dir=BASE_DIR / gh.get("cache_dir", ".github_cache"),
                           cache_ttl_hours=gh.get("cache_ttl_hours", 24))
+        print(f"[meta-skills] 找到 {len(repos)} 个仓库，开始逐个尝试安装", file=sys.stderr)
         rank_repo = (config.get("rank_lists") or {}).get("repo", "").strip()
         installed = []
-        for repo in repos:
+        for i, repo in enumerate(repos, 1):
             if len(installed_names) >= max_skills:
+                print(f"[meta-skills] 已达上限 {max_skills}，停止安装", file=sys.stderr)
                 break
+            print(f"[meta-skills] [{i}/{len(repos)}] 正在处理: {repo.full_name} (stars: {repo.stars}) ...", file=sys.stderr)
             ok, msg = install_skill(repo, skills_dir, config, run_validate=True)
             if ok and msg not in installed_names:
                 db.register_skill(msg, repo.html_url)
@@ -648,6 +653,11 @@ if __name__ == "__main__":
                 installed.append({"name": msg, "repo": repo.full_name})
                 if rank_repo:
                     update_rank_lists_after_install(msg, repo.html_url, config)
+                print(f"[meta-skills]   -> 已安装: {msg}", file=sys.stderr)
+            else:
+                reason = msg if not ok else "已存在"
+                print(f"[meta-skills]   -> 跳过: {reason}", file=sys.stderr)
+        print(f"[meta-skills] 完成。本次新安装 {len(installed)} 个，当前共 {len(installed_names)} 个。", file=sys.stderr)
         signal_reload(config)
         out = {"installed": installed, "total_installed": len(installed_names)}
         print(json.dumps(out, ensure_ascii=False, indent=2))
