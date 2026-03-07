@@ -1,11 +1,13 @@
 ---
 name: deploy-meta-skills
-description: 当用户说「帮我部署 meta-skills」或给出其 GitHub 链接时，在 OpenClaw 所在环境中将 meta-skills 安装为元技能并执行部署。不要当作服务器/Docker 部署，不要询问部署目标，直接按本技能步骤执行。meta-skills 用于发现、安装与每日自动更新 OpenClaw 技能，扩展用户 OpenClaw 能力。
+description: 当用户说「帮我部署 meta-skills」或给出其 GitHub 链接时，在 OpenClaw 所在环境中将 meta-skills 安装为元技能并执行部署；当用户说「更新 meta-skills」「升级 meta-skills」或「拉取 meta-skills 最新版」时，从 GitHub 仓库拉取 meta-skills 最新版本并更新依赖。不要当作服务器/Docker 部署，不要询问部署目标，直接按本技能步骤执行。meta-skills 用于发现、安装与每日自动更新 OpenClaw 技能，扩展用户 OpenClaw 能力。
 ---
 
 # 部署 meta-skills 引导技能
 
-**触发条件**：用户消息中包含「帮我部署 meta-skills」或「部署 meta-skills」且带有本仓库链接（如 `https://github.com/lllray/meta-skills`）时，**直接**按本技能执行，不要先回复「本机/服务器/Docker 选哪种」或「部署到哪里」。
+**触发条件**：
+- 当用户消息中包含「帮我部署 meta-skills」或「部署 meta-skills」且带有本仓库链接（如 `https://github.com/lllray/meta-skills`）时，**直接**按本技能的部署步骤执行，不要先回复「本机/服务器/Docker 选哪种」或「部署到哪里」。
+- 当用户消息中包含「更新 meta-skills」「升级 meta-skills」或「拉取 meta-skills 最新版」等表述时，直接按 (g) 小节的「更新 meta-skills 版本」步骤执行，从仓库拉取最新版并更新依赖。
 
 ---
 
@@ -163,6 +165,33 @@ pip install -r requirements.txt
 
 ---
 
+## (g) 更新 meta-skills 版本（从 GitHub 拉取最新）
+
+当用户要求「更新 meta-skills」「升级 meta-skills」「拉取 meta-skills 最新版」或类似表述时：
+
+1. **在 meta-skills 目录执行拉取**  
+   ```bash
+   cd ~/.openclaw/skills/meta-skills
+   git pull
+   ```
+   若默认远程为 `origin` 且指向官方仓库（如 `https://github.com/lllray/meta-skills`），则会拉取最新提交。
+
+2. **如有依赖变更，重装依赖**  
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **可选：若使用 systemd 定时任务，重装以应用配置**  
+   若 `config.yaml` 中 `schedule` 的 hour/minute 有变更或希望确保 unit 与当前代码一致，可再执行：
+   ```bash
+   python manager.py schedule install
+   ```
+
+4. **回复用户**  
+   告知已从 GitHub 拉取最新版本，并简要说明本次更新内容（若有 release note 或 git log 可概括）。
+
+---
+
 ## 与 meta-skills 的接口汇总（供 OpenClaw 调用）
 
 | 目的 | 命令 |
@@ -177,6 +206,7 @@ pip install -r requirements.txt
 | **定时任务：关闭** | `python manager.py schedule stop` |
 | **定时任务：查询状态** | `python manager.py schedule status` |
 | 手动执行一次「每日更新」 | `python manager.py daily_run` |
+| **更新 meta-skills 版本** | `cd ~/.openclaw/skills/meta-skills && git pull && pip install -r requirements.txt`（可选再执行 `schedule install`） |
 
 **search_install 结果发到对话**：执行 `search_install` 后，请将 Exec 返回的**完整输出**展示在对话中；若用户在终端手动执行了 search_install，可让用户说「读取 meta-skills/reports 下最新的 search_install 报告并发到对话」，你读取 `~/.openclaw/skills/meta-skills/reports/` 下最新一份 `search_install_*.md` 并把内容发到对话，即可将结果发给 AI。
 

@@ -1049,7 +1049,35 @@ def get_installed_summary(config: Optional[dict] = None) -> list[dict]:
     db = DBHandler(base_dir=BASE_DIR)
     out = []
     for rec in db.list_skills():
-        skill_md = skills_dir / rec.name / "SKILL.md"
+        # 默认结构：~/.openclaw/skills/<skill_name>/SKILL.md
+        # 为兼容部分环境下的多级目录（如 ~/.openclaw/skills/<分类>/<skill_name>/SKILL.md），
+        # 若根目录未找到，则向下最多再查两层子目录中的 SKILL.md。
+        skill_root = skills_dir / rec.name
+        skill_md = skill_root / "SKILL.md"
+        if not skill_md.exists() and skill_root.exists():
+            found: Optional[Path] = None
+            try:
+                for lvl1 in skill_root.iterdir():
+                    if not lvl1.is_dir():
+                        continue
+                    candidate = lvl1 / "SKILL.md"
+                    if candidate.exists():
+                        found = candidate
+                        break
+                    # 第二层
+                    for lvl2 in lvl1.iterdir():
+                        if not lvl2.is_dir():
+                            continue
+                        candidate2 = lvl2 / "SKILL.md"
+                        if candidate2.exists():
+                            found = candidate2
+                            break
+                    if found:
+                        break
+            except Exception:
+                found = None
+            if found:
+                skill_md = found
         desc = ""
         if skill_md.exists():
             try:
