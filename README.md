@@ -8,10 +8,8 @@ OpenClaw 的 **元技能** 仓库：根据关键词从 GitHub 与 **meta-skills-
 
    ```bash
    # 克隆到 OpenClaw 技能目录（仓库名为 meta-skills）
-   git clone https://github.com/yourname/meta-skills.git ~/.openclaw/skills/meta-skills
+   git clone https://github.com/lllray/meta-skills ~/.openclaw/skills/meta-skills
    ```
-
-   或在 OpenClaw 中按文档通过 `install https://github.com/yourname/meta-skills` 安装。
 
 2. **配置**
 

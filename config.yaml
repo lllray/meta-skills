@@ -1,0 +1,53 @@
+# meta-skills 配置文件
+# 仓库名：meta-skills。排名数据每日上传到用户自己的 meta-skills-rank-lists 仓库。
+
+# GitHub API（必填或使用环境变量 GITHUB_TOKEN）
+github:
+  token: ${GITHUB_TOKEN}
+  discovery:
+    min_stars: 50
+    updated_within_days: 30
+    topic: "openclaw-skill"
+    max_results_per_search: 20
+  cache_dir: ".github_cache"
+  cache_ttl_hours: 24
+
+# 用户自己的排名仓库（需先在 GitHub 创建空仓库 meta-skills-rank-lists）
+rank_lists:
+  repo: ""   # 例如 yourname/meta-skills-rank-lists，用于上传本机使用数据与 README
+  # 发现时从哪些 rank 仓库拉取高使用量技能（可填他人或社区仓库）
+  discovery_repos: []  # 例如 ["otheruser/meta-skills-rank-lists"]，为空则仅用 GitHub 搜索
+  keywords: []  # 例如 ["twitter", "calendar", "pdf"]，用于 README 展示与 GitHub 搜索关键词
+
+# 每日定时任务（默认 21:00）
+schedule:
+  enabled: true
+  hour: 21
+  minute: 0
+
+# 沙箱
+sandbox:
+  opensandbox:
+    enabled: false
+    endpoint: "http://localhost:8080"
+  docker:
+    enabled: true
+    image: "python:3.11-slim"
+    timeout_seconds: 60
+
+# OpenClaw 技能目录
+openclaw:
+  skills_dir: "~/.openclaw/skills"
+  signal_reload: true
+
+# 优先级
+priority:
+  default: 0
+  max: 100
+
+# 回馈（可选）
+uplink:
+  auto_uplink_enabled: false
+  min_score_for_uplink: 4.5
+  curated_repo: ""
+  prefer_pr: true
