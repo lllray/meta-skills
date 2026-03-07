@@ -375,6 +375,50 @@ def update_rank_lists_after_install(
 # ---------- 每日任务：检索安装 + 上传使用与评分 ----------
 
 
+def _write_daily_update_report(
+    installed: list[dict],
+    config: Optional[dict],
+    base_dir: Path,
+) -> Optional[Path]:
+    """
+    将本次每日更新中新安装的技能列表与说明写入 Markdown 报告。
+    路径: base_dir/reports/daily_update_YYYY-MM-DD.md
+    返回报告文件路径；若无新安装或写入失败则返回 None。
+    """
+    if not installed:
+        return None
+    config = config or _load_config()
+    summary = get_installed_summary(config)
+    by_name = {s["name"]: {"description": s["description"], "source_url": s["source_url"]} for s in summary}
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    reports_dir = base_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    report_path = reports_dir / f"daily_update_{date_str}.md"
+    lines = [
+        "# Meta-Skills 每日更新报告",
+        "",
+        f"**日期**：{date_str}",
+        f"**新安装技能数**：{len(installed)}",
+        "",
+        "| 技能名 | 来源 | 说明 |",
+        "| --- | --- | --- |",
+    ]
+    for item in installed:
+        name = item.get("name", "")
+        source = item.get("source", "—")
+        if source == "github" and item.get("repo"):
+            source = item["repo"]
+        info = by_name.get(name, {})
+        desc = (info.get("description") or "—").replace("\n", " ").strip()[:200]
+        lines.append(f"| {name} | {source} | {desc} |")
+    lines.append("")
+    try:
+        report_path.write_text("\n".join(lines), encoding="utf-8")
+        return report_path
+    except Exception:
+        return None
+
+
 def daily_run(config: Optional[dict] = None) -> dict:
     """
     每日默认 21:00 执行：
@@ -463,6 +507,12 @@ def daily_run(config: Optional[dict] = None) -> dict:
                 result["installed"].append({"name": msg, "source": "github", "repo": repo.full_name})
 
     signal_reload(config)
+
+    # 2.5) 若有新安装，将更新结果写入报告文档（供 OpenClaw 通过飞书发给用户）
+    if result["installed"]:
+        report_path = _write_daily_update_report(result["installed"], config, BASE_DIR)
+        if report_path:
+            result["report_path"] = str(report_path)
 
     # 3) 上传今日排名数据到 meta-skills-rank-lists
     if rank_repo:

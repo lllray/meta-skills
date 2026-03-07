@@ -52,6 +52,8 @@ def run_scheduler() -> None:
         try:
             result = daily_run(config)
             print(f"[meta-skills] 安装: {result.get('installed', [])}, 上传: {result.get('uploaded')}")
+            if result.get("report_path"):
+                print(f"[meta-skills] 更新报告已写入: {result['report_path']}（可由 OpenClaw 通过飞书发给用户）")
             if result.get("upload_error"):
                 print(f"[meta-skills] 上传错误: {result['upload_error']}")
         except Exception as e:
