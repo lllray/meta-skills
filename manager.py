@@ -563,7 +563,7 @@ def create_rank_lists_repo_and_init(token: str, username: str, repo_name: str = 
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:
-        print("usage: search_install <keywords> | scores [skill_name] | record <skill_name> [source_url] | priority <skill_name> <n> | daily_run | upload_rank | config get <key> | config set <key> <value> | keywords add k1 k2 | keywords update k1 k2 | keywords get | create_rank_repo <username> | installed_summary | max_skills [n] | schedule [hour] [minute]")
+        print("usage: search_install <keywords> | scores [skill_name] | record <skill_name> [source_url] | record_edit <skill_name> [source_url] | usage_stats | priority <skill_name> <n> | daily_run | upload_rank | ...")
         sys.exit(1)
     cmd = sys.argv[1].lower()
     config = _load_config()
@@ -626,6 +626,18 @@ if __name__ == "__main__":
         source_url = sys.argv[3] if len(sys.argv) > 3 else ""
         record_skill_use(skill_name, source_url=source_url)
         print("recorded")
+
+    elif cmd == "record_edit" and len(sys.argv) >= 3:
+        skill_name = sys.argv[2]
+        source_url = sys.argv[3] if len(sys.argv) > 3 else ""
+        record_skill_edit(skill_name, source_url=source_url)
+        print("record_edit recorded")
+
+    elif cmd == "usage_stats":
+        data = load_rank_data(BASE_DIR)
+        skills = data.get("skills", [])
+        out = [{"name": s["name"], "use_count": s.get("use_count", 0), "edit_count": s.get("edit_count", 0)} for s in skills]
+        print(json.dumps(out, ensure_ascii=False, indent=2))
 
     elif cmd == "priority" and len(sys.argv) >= 4:
         print(main_priority(sys.argv[2], int(sys.argv[3])))

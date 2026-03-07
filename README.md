@@ -99,6 +99,21 @@ meta-skills/
 
 OpenClaw 会从该目录扫描并加载 SKILL.md，无需再跑其他安装命令。安装结束后会打印本次安装的技能简介；也可执行 `python manager.py installed_summary` 查看全部已安装技能及 description。
 
+## 监控与记录 Skill 使用和更新
+
+**当前机制（非自动）**：项目不会自动监听 OpenClaw 的 skill 执行事件，需要**在每次使用某 skill 后**由你或集成方调用记录接口，数据才会被写入。
+
+| 类型 | 如何记录 | 存到哪里 | 用途 |
+|------|----------|----------|------|
+| **使用** | `python manager.py record <skill_name> [source_url]` | `rank_data.json`（use_count）+ SQLite（invocations） | 打分、排名、每日上传到 meta-skills-rank-lists |
+| **用户修改** | `python manager.py record_edit <skill_name> [source_url]` | `rank_data.json`（edit_count） | README 表格中的「用户修改次数」 |
+
+- **查看当前使用/更新统计**：`python manager.py usage_stats`（列出每个技能的 use_count、edit_count）
+- **查看评分**：`python manager.py scores`（基于 SQLite 的 invocations + feedback 计算）
+- **每日同步**：`daily_run` 或定时任务会把 `rank_data.json` 与生成的 README 推送到你的 meta-skills-rank-lists 仓库
+
+**测试**：在项目根目录执行 `python tests/test_usage_recording.py`，会模拟多次 record、一次 record_edit，并打印 usage_stats 与 scores，用于验证记录与统计是否正常。
+
 ## 依赖
 
 - Python 3.10+
