@@ -158,8 +158,9 @@ def _github_search(
     params = {"q": query, "sort": sort, "order": order, "per_page": per_page}
     try:
         import urllib.request
+        from urllib.parse import urlencode
         req = urllib.request.Request(
-            url + "?" + __import__("urllib.parse").urlencode(params),
+            url + "?" + urlencode(params),
             headers=headers,
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -192,9 +193,15 @@ def discovery(
 ) -> list[RepoCandidate]:
     token = token or os.environ.get("GITHUB_TOKEN", "")
     since = (datetime.utcnow() - timedelta(days=updated_within_days)).strftime("%Y-%m-%d")
+    # 若关键词含 " / " 或 ","，只取第一段用于搜索，避免整串过严导致 0 结果
+    kw_clean = keywords.strip()
+    if kw_clean and (" / " in kw_clean or "," in kw_clean):
+        first = (kw_clean.replace(",", " / ").split(" / ")[0] or "").strip()
+        if first:
+            kw_clean = first
     q_parts = [f"topic:{topic}", f"stars:>{min_stars}", f"pushed:>={since}"]
-    if keywords.strip():
-        q_parts.insert(0, keywords.strip())
+    if kw_clean:
+        q_parts.insert(0, kw_clean)
     query = " ".join(q_parts)
     cache_path = None
     if cache_dir:
@@ -212,6 +219,10 @@ def discovery(
         items = None
     if items is None:
         items = _github_search(token, query, sort="stars", order="desc", per_page=max_results)
+        # 若有关键词但结果为 0，可能是关键词过严（如整串 "a / b / c"），回退为仅 topic+stars+pushed
+        if not items and keywords.strip():
+            fallback_query = " ".join([f"topic:{topic}", f"stars:>{min_stars}", f"pushed:>={since}"])
+            items = _github_search(token, fallback_query, sort="stars", order="desc", per_page=max_results)
         if cache_path and items:
             cache_path.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
     out = []
