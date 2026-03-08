@@ -7,3 +7,5 @@ __pycache__/
 venv/
 
 rank_data.json
+
+reports/

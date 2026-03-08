@@ -48,7 +48,7 @@ pip install -r requirements.txt
 1. **部署步骤**
    - 了解您主要用 OpenClaw 做什么 → 拆解为搜索关键词
    - 配置 **GitHub Token**（仅用于在 GitHub 上搜索并安装 skills）
-   - 根据关键词安装全网高质量 OpenClaw skills（默认最多 100 个，可改）
+   - 根据关键词安装全网高质量 OpenClaw skills（默认最多 500 个，可改）
    - 汇报已安装的 skills 及简要能力
    - 说明**每日 21:00 自动更新**（会再次检索并安装新 skills，时间可改）；更新结果写入报告文档，**OpenClaw 可通过飞书**将当日新安装列表与说明发给用户。
 
@@ -89,10 +89,10 @@ pip install -r requirements.txt
 
 ---
 
-## (d) 安装全网高质量 skills（默认上限 100）
+## (d) 安装全网高质量 skills（默认上限 500）
 
 1. **说明**  
-   告知用户：「将根据刚才的关键词为您安装全网高质量的 OpenClaw skills，默认**最多 100 个**。之后可通过 OpenClaw 让我帮您改上限或追加关键词安装。」
+   告知用户：「将根据刚才的关键词为您安装全网高质量的 OpenClaw skills，默认**最多 500 个**。之后可通过 OpenClaw 让我帮您改上限或追加关键词安装。」
 
 2. **首次检索提示**  
    在执行 `search_install` 之前，务必告知用户：**「首次检索 SKILL 需要较长时间，请耐心等待。」**（会从 GitHub 与配置的 awesome 列表拉取并校验大量仓库，可能持续数分钟。）
@@ -207,7 +207,7 @@ pip install -r requirements.txt
 | 写入 Token（本地） | `python manager.py config set github.token <token>` |
 | 搜索并安装 | `python manager.py search_install "关键词1 关键词2"` |
 | 已安装列表与能力 | `python manager.py installed_summary` |
-| 查看/设置安装上限 | `python manager.py max_skills` / `python manager.py max_skills 100` |
+| 查看/设置安装上限 | `python manager.py max_skills` / `python manager.py max_skills 500` |
 | 查看/设置每日执行时间 | `python manager.py schedule` / `python manager.py schedule 21 0` |
 | **定时任务：安装并默认启动** | `python manager.py schedule install` |
 | **定时任务：启动** | `python manager.py schedule start` |

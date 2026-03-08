@@ -25,7 +25,7 @@ OpenClaw 的 **元技能** 仓库：根据关键词从 GitHub 与 **meta-skills-
    - **(a)** 向用户告知整个部署过程的步骤、需要的信息、部署后具备的功能；
    - **(b)** 询问用户主要用 OpenClaw 做什么，拆解为技术关键词，用 `manager.py keywords update/add` 写入 meta-skills（支持后续添加或更新）；
    - **(c)** 索要 GITHUB_TOKEN，说明用于搜索全网优秀 skills；
-   - **(d)** 安装全网高质量 skills，默认上限 100（用户可通过 OpenClaw 修改）；
+   - **(d)** 安装全网高质量 skills，默认上限 500（用户可通过 OpenClaw 修改）；
    - **(e)** 安装完毕后汇报已安装的 skills 及简要能力；
    - **(f)** 告知用户每日 21:00 自动更新（时间可通过 OpenClaw 修改）。
 
